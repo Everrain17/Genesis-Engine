@@ -32,8 +32,8 @@ namespace GenesisEngine.Systems.Analytics
             if (!Directory.Exists(directory))
                 Directory.CreateDirectory(directory);
 
-            _filePath = Path.Combine(directory, $"emergence_data_{_runId}.csv");
-            _diagnosticsPath = Path.Combine(directory, $"headless_status_{_runId}.csv");
+            _filePath = Path.Combine(directory, "emergence_data.csv");
+            _diagnosticsPath = Path.Combine(directory, "headless_status.csv");
 
             if (!File.Exists(_filePath))
             {

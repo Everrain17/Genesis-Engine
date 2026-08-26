@@ -15,6 +15,8 @@ namespace GenesisEngine.Systems.Observers
         public static int LastProcessedEvents;
 
         private static int _materialLogCount;
+        public static int MaterialBreakthroughs;
+        public static int MaterialAnalogs;
 
         public static void ProcessEvents(Simulation sim)
         {
@@ -59,7 +61,30 @@ namespace GenesisEngine.Systems.Observers
                 return;
 
             CognitionSystem.Observe(e);
-
+            switch (e.Type)
+            {
+                case SimEventType.AgentDied:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "AgentDied", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
+                case SimEventType.Trade:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Trade", e.Actor?.CivilizationId, "");
+                    break;
+                case SimEventType.Combat:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Combat", e.Actor?.CivilizationId, "");
+                    break;
+                case SimEventType.BuildingCreated:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "BuildingCreated", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
+                case SimEventType.Discovery:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Discovery", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
+                case SimEventType.ArtifactCreated:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "ArtifactCreated", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
+                case SimEventType.MaterialMixed:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "MaterialMixed", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
+            }
             switch (e.Type)
             {
                 case SimEventType.Trade:
@@ -161,17 +186,18 @@ namespace GenesisEngine.Systems.Observers
             if (match < 70f)
             {
                 _materialLogCount++;
-
+                MaterialBreakthroughs++;
                 FileLogger.Log(
                     $"[TICK {e.Tick}] MATERIAL BREAKTHROUGH: '{spec.Id}' has no close real-world analog. " +
                     $"Hardness={spec.Hardness:F2}, Conductivity={spec.Conductivity:F2}, Organic={spec.Organic:F2}, " +
                     $"Flexibility={spec.Flexibility:F2}, Logic={spec.Logic:F2}",
                     FileLogger.LogLevel.Info);
+                Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "MaterialBreakthrough", e.Actor?.CivilizationId, e.Data);
             }
             else if (match > 85f)
             {
                 _materialLogCount++;
-
+                MaterialAnalogs++;
                 FileLogger.Log(
                     $"[TICK {e.Tick}] MATERIAL ANALOG: '{spec.Id}' ≈ {analog} ({match:F1}%)",
                     FileLogger.LogLevel.Info);
@@ -186,6 +212,7 @@ namespace GenesisEngine.Systems.Observers
             FileLogger.Log(
                 $"[TICK {e.Tick}] DISCOVERY EVENT: {e.Data} by {e.Actor?.Id.ToString() ?? "unknown"}",
                 FileLogger.LogLevel.Info);
+            Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Discovery", e.Actor?.CivilizationId, e.Data);
         }
 
         private static void OnBuildingCreated(Simulation sim, SimEvent e)
@@ -214,6 +241,7 @@ namespace GenesisEngine.Systems.Observers
             FileLogger.Log(
                 $"[TICK {e.Tick}] {civ.Name}: emergent structure '{tile.BuildingName}' [{tile.DominantAxis}] quality={tile.BuildingQuality:F2}",
                 FileLogger.LogLevel.Info);
+            Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "BuildingCreated", e.Actor?.CivilizationId, e.Data);
         }
 
         private static void OnArtifactCreated(SimEvent e)
@@ -224,6 +252,8 @@ namespace GenesisEngine.Systems.Observers
             FileLogger.Log(
                 $"[TICK {e.Tick}] CULTURE: artifact '{e.Data}' created by {e.Actor?.Id.ToString() ?? "unknown"}",
                 FileLogger.LogLevel.Info);
+            Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "ArtifactCreated", e.Actor?.CivilizationId, e.Data);
+
         }
     }
 }

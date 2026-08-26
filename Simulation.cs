@@ -289,6 +289,7 @@ namespace GenesisEngine
                 }
 
                 SimulationLogger.LogTick(TotalTicks, Agents, World);
+                ExtendedMetricsLogger.LogAll(TotalTicks, Agents, World);
 
                 if (TotalTicks % 500 == 0)
                     FileLogger.LogTick(this, TotalTicks);
@@ -462,7 +463,9 @@ namespace GenesisEngine
             }
 
             // Генерируем уникальный ID прогона
-            string runId = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+            DateTime now = DateTime.Now;
+            string runId = now.ToString("yyyy-MM-dd_HH-mm-ss");
+            string runDir = Path.Combine("data", $"BigData_{now:dd.MM.yyyy_HH.mm.ss}");
 
             // Флаг для graceful shutdown
             bool running = true;
@@ -518,7 +521,8 @@ namespace GenesisEngine
                     FileLogger.Log($"Ticks limit: {ticks}");
                 }
 
-                SimulationLogger.Initialize(runId, "data");
+                SimulationLogger.Initialize(runId, runDir);
+                ExtendedMetricsLogger.Initialize(runId, runDir);
 
                 Console.WriteLine($"Initialized. Agents={sim.Agents.Count}, Creatures={sim.Creatures.Count}");
 
@@ -605,6 +609,8 @@ namespace GenesisEngine
                 Console.WriteLine("Cleaning up...");
                 SimulationLogger.Flush();
                 SimulationLogger.Close();
+                ExtendedMetricsLogger.Flush();
+                ExtendedMetricsLogger.Close();
 
                 FileLogger.Flush();
                 FileLogger.Close();

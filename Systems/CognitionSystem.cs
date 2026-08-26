@@ -65,7 +65,13 @@ namespace GenesisEngine.Systems
                     break;
             }
         }
-
+        public static Dictionary<string, (int Count, float Avg)> SnapshotStats()
+        {
+            var snap = new Dictionary<string, (int, float)>();
+            foreach (var kv in Stats)
+                snap[kv.Key] = (kv.Value.Count, kv.Value.Sum / Math.Max(1, kv.Value.Count));
+            return snap;
+        }
         public static void Record(string key, float value)
         {
             if (string.IsNullOrWhiteSpace(key)) return;

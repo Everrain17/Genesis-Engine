@@ -93,7 +93,31 @@ namespace GenesisEngine.Systems
     public static class KnowledgeSystem
     {
         public static List<Knowledge> All = new();
+        // Счётчики для текстовых логов (агрегация)
+        private static int _readCountSinceLastLog = 0;
+        private static int _teachCountSinceLastLog = 0;
+        private static int _lastReadLogTick = 0;
+        private static int _lastTeachLogTick = 0;
+        private static readonly Dictionary<string, int> _readByKnowledge = new();
+        private static readonly Dictionary<string, int> _teachByKnowledge = new();
 
+        // Счётчики для CSV (поток использования знаний)
+        private static int _readsSinceLastCsv = 0;
+        private static int _teachingsSinceLastCsv = 0;
+
+        public static int ReadsSinceLastCsv()
+        {
+            int v = _readsSinceLastCsv;
+            _readsSinceLastCsv = 0;
+            return v;
+        }
+
+        public static int TeachingsSinceLastCsv()
+        {
+            int v = _teachingsSinceLastCsv;
+            _teachingsSinceLastCsv = 0;
+            return v;
+        }
         private static readonly SortedDictionary<string, Knowledge> _byId = new();
         private static readonly SortedDictionary<Guid, List<Knowledge>> _byKnower = new();
         private static readonly SortedDictionary<string, List<Knowledge>> _byKindConcept = new();
@@ -102,12 +126,6 @@ namespace GenesisEngine.Systems
         private static int _indexedCount = -1;
         private static bool _dirty = true;
 
-        private static int _readCountSinceLastLog = 0;
-        private static int _teachCountSinceLastLog = 0;
-        private static int _lastReadLogTick = 0;
-        private static int _lastTeachLogTick = 0;
-        private static readonly Dictionary<string, int> _readByKnowledge = new();
-        private static readonly Dictionary<string, int> _teachByKnowledge = new();
 
         private static void MarkDirty()
         {
@@ -308,9 +326,11 @@ namespace GenesisEngine.Systems
                     learnedAnything = true;
 
                     _readCountSinceLastLog++;
+                    _readsSinceLastCsv++;
                     if (!_readByKnowledge.ContainsKey(knowledge.Name))
                         _readByKnowledge[knowledge.Name] = 0;
                     _readByKnowledge[knowledge.Name]++;
+                    
                     LogReadsIfNeeded();
                 }
             }
@@ -396,6 +416,7 @@ namespace GenesisEngine.Systems
 
                     // Агрегируем вместо индивидуального лога
                     _teachCountSinceLastLog++;
+                    _teachingsSinceLastCsv++;
                     if (!_teachByKnowledge.ContainsKey(k.Name))
                         _teachByKnowledge[k.Name] = 0;
                     _teachByKnowledge[k.Name]++;
