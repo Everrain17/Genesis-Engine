@@ -37,7 +37,11 @@ namespace GenesisEngine.Systems
             {
                 SignalSystem.EmitSignal(a, SignalType.Bond, loneliness, 12f);
             }
-
+            // НОВОЕ: атакованный хищником кричит "опасность" — соседи разбегаются
+            if (a.LastAction == "Predated" && rng.NextDouble() < 0.5f)
+            {
+                SignalSystem.EmitSignal(a, SignalType.Danger, 0.9f, 10f);
+            }
             if (a.Body.Inventory.Count > 1 &&
                 a.Genome.Extraversion > 0.55f &&
                 rng.NextDouble() < 0.015f + a.Genome.Openness * 0.02f)

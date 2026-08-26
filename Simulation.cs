@@ -24,7 +24,6 @@ namespace GenesisEngine
         public bool SimulationEnded = false;
         public string EndReason = "";
 
-        public Dictionary<ResourceType, int> TradeStats = new();
         public int TotalTrades = 0;
 
         public int TotalBorn;
@@ -153,7 +152,31 @@ namespace GenesisEngine
                 }
 
                 c.Update(World, Agents, Creatures);
-
+                // Хищники атакуют агентов
+                if (c.Behavior == CreatureBehavior.Predator)
+                {
+                    var target = SpatialGrid.GetNearby(c.Position, 1)
+                        .FirstOrDefault(a => a != null && a.Body.Health > 0);
+                    if (target != null)
+                    {
+                        float damage = c.Size * 3f;
+                        target.Body.Health -= damage;
+                        target.Fear += 30f;
+                        target.LastAction = "Predated";
+                        if (target.Body.Health <= 0)
+                        {
+                            TotalDiedPredator++;
+                            EventBus.Publish(new SimEvent
+                            {
+                                Type = SimEventType.AgentDied,
+                                Tick = TotalTicks,
+                                Actor = target,
+                                Position = target.Position,
+                                Data = "Predated"
+                            });
+                        }
+                    }
+                }
                 if (c.Energy <= 0 || c.Age > c.MaxAge)
                     Creatures.RemoveAt(i);
             }
@@ -240,6 +263,25 @@ namespace GenesisEngine
                 }
 
                 DiplomacySystem.UpdateDiplomacy(activeCivs, Rng);
+                // === НОВОЕ: лидеры принимают решения о войне/союзах ===
+                if (TotalTicks % 500 == 0)
+                {
+                    foreach (var civ in activeCivs)
+                    {
+                        if (civ.Members.Count == 0) continue;
+
+                        // Эмерджентный лидер: самое влиятельное и агрессивное лицо
+                        Agent leader = civ.Members[0];
+                        float best = float.MinValue;
+                        foreach (var m in civ.Members)
+                        {
+                            float score = m.Genome.BaseInfluence + m.Genome.Aggression;
+                            if (score > best) { best = score; leader = m; }
+                        }
+
+                        DiplomacySystem.LeaderDecideDiplomacy(civ, leader, activeCivs, Rng);
+                    }
+                }
                 CultureSystem.UpdateWorld(World);
                 InstitutionSystem.UpdateWorld(World, Agents, TotalTicks);
 
@@ -332,7 +374,7 @@ namespace GenesisEngine
 
                 // Ферма умножает базовую регенерацию тайла
                 if (isFarm)
-                    regeneration *= (1f + tile.BuildingQuality * 4f);
+                    regeneration *= (1f + tile.BuildingQuality * 3f);
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
@@ -345,7 +387,7 @@ namespace GenesisEngine
                     tile.GroundObjects.Add(new WorldObject
                     {
                         MaterialId = foodId,
-                        Quantity = 8f * tile.BuildingQuality,
+                        Quantity = 2f * tile.BuildingQuality,
                         Position = new Vector2(tile.X, tile.Y)
                     });
                 }
@@ -410,6 +452,8 @@ namespace GenesisEngine
                 }
             }
         }
+      
+     
 
         public static void Main(string[] args)
         {
@@ -419,7 +463,9 @@ namespace GenesisEngine
             int agents = 150;
             int seed = (int)(DateTime.Now.Ticks & 0x7FFFFFFF);
             bool seedSpecified = false;
-
+            // НОВОЕ: точка в десятичных во всех файлах и логах, независимо от языка Windows
+            System.Globalization.CultureInfo.DefaultThreadCurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            System.Globalization.CultureInfo.DefaultThreadCurrentUICulture = System.Globalization.CultureInfo.InvariantCulture;
             // Парсим аргументы командной строки
             for (int i = 0; i < args.Length; i++)
             {
@@ -611,7 +657,8 @@ namespace GenesisEngine
                 SimulationLogger.Close();
                 ExtendedMetricsLogger.Flush();
                 ExtendedMetricsLogger.Close();
-
+                Console.WriteLine("Building Excel report...");
+                ExcelExporter.ExportFolder(runDir);
                 FileLogger.Flush();
                 FileLogger.Close();
 

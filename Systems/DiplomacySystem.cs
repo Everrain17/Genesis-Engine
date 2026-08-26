@@ -139,20 +139,6 @@ namespace GenesisEngine.Systems
             return total;
         }
 
-        public static void ObserveTrade(Agent a, Agent b)
-        {
-            if (a == null || b == null)
-                return;
-
-            if (string.IsNullOrEmpty(a.CivilizationId) ||
-                string.IsNullOrEmpty(b.CivilizationId))
-                return;
-
-            if (a.CivilizationId == b.CivilizationId)
-                return;
-
-            ShiftRelation(a.CivilizationId, b.CivilizationId, +2f);
-        }
 
         public static void ObserveCombat(Agent a, Agent b)
         {
@@ -245,7 +231,20 @@ namespace GenesisEngine.Systems
                                 ShiftRelation(a.Id, b.Id, +10f);
                             }
                         }
+                        // Случайная напряженность от конкуренции
+                        if (rng.NextDouble() < 0.03f)
+                        {
+                            ShiftRelation(a.Id, b.Id, -3f);
+                        }
 
+                        // Автоматическое объявление войны при очень плохих отношениях
+                        if (rel < -50f && rng.NextDouble() < 0.15f)
+                        {
+                            DeclareWar(a.Id, b.Id, CasusBelli.Expansion);
+                            FileLogger.Log(
+                                $"[TICK {Simulation.Instance.TotalTicks}] WAR: {a.Name} declares war on {b.Name}",
+                                FileLogger.LogLevel.War);
+                        }
                         // Медленное естественное затухание негатива.
                         if (rel < 0f)
                             ShiftRelation(a.Id, b.Id, +0.25f);
@@ -320,6 +319,15 @@ namespace GenesisEngine.Systems
                         myStr > theirStr * 1.2f)
                     {
                         warChance = 0.20f;
+                    }
+                    // Война за расширение: агрессивный лидер с подавляющим перевесом
+                    // может атаковать даже без накопленной вражды
+                    if (!exhausted &&
+                        leader.Genome.Aggression > 0.75f &&
+                        myStr > theirStr * 1.5f &&
+                        rel < 20f)
+                    {
+                        warChance = Math.Max(warChance, 0.08f);
                     }
 
                     if (rng.NextDouble() < warChance)

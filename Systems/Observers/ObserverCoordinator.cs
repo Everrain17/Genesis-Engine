@@ -140,6 +140,7 @@ namespace GenesisEngine.Systems.Observers
             }
 
             DiplomacySystem.ShiftRelation(civA, civB, +2f);
+            Simulation.Instance.TotalTrades++;   // НОВОЕ
         }
 
         private static void OnCombat(SimEvent e)

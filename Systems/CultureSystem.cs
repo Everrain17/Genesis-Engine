@@ -154,7 +154,9 @@ namespace GenesisEngine.Systems
 
                     tile.SanctityLevel = Math.Clamp(tile.SanctityLevel + 0.1f, 0f, 100f);
 
-                    observer.Memory.UpdateAgentMemory(dead.Id, "Mourn", 5f);
+                    //observer.Memory.UpdateAgentMemory(dead.Id, "Mourn", 5f);
+                    // НОВОЕ: скорбящий излучает сигнал — соседи реагируют (приёмник уже готов)
+                    //SignalSystem.EmitSignal(observer, SignalType.Mourn, 0.5f, 8f);
                 }
             }
         }
