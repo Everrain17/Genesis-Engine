@@ -1,0 +1,527 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using GenesisEngine.Core;
+using GenesisEngine.Entities;
+using GenesisEngine.Systems.Physics;
+using GenesisEngine.World;
+
+namespace GenesisEngine.Systems
+{
+    public static class AdvancedCognitivePrimitives
+    {
+        // ============================================================
+        // 1. ОБЪЕКТНАЯ ПЕРМАНЕНТНОСТЬ
+        // Агент помнит объекты, которые видел раньше
+        // ============================================================
+        private class SeenObject
+        {
+            public string MaterialId;
+            public Vector2 Position;
+            public int LastSeenTick;
+            public float Quantity;
+            public float Importance;
+        }
+
+        // ============================================================
+        // 4. ПРОСТРАНСТВЕННАЯ ПАМЯТЬ
+        // Агент помнит важные места
+        // ============================================================
+        private class PlaceMemory
+        {
+            public Vector2 Position;
+            public string Kind; // food, knowledge, shelter, sacred
+            public int LastSeenTick;
+            public float Importance;
+        }
+
+        private static readonly SortedDictionary<Guid, List<SeenObject>> ObjectMemory = new();
+        private static readonly SortedDictionary<Guid, List<PlaceMemory>> _placeMemories = new();
+
+
+        // ============================================================
+        // 2. КАТЕГОРИЗАЦИЯ
+        // ============================================================
+        private static readonly SortedDictionary<Guid, Dictionary<string, int>> CategoryMemory = new();
+
+        public static void Update(Agent agent, Tile tile, Random rng)
+        {
+            if (agent == null || tile == null || rng == null)
+                return;
+
+            var sim = Simulation.Instance;
+
+            if (sim == null)
+                return;
+
+            int tick = sim.TotalTicks;
+
+            // Фаза для каждого агента, чтобы не нагружать один тик
+            int phase = agent.Id.GetHashCode() & 0x7fffffff;
+
+            if ((tick + phase) % 5 == 0)
+                UpdateObjectPermanence(agent, tile, tick);
+
+            if ((tick + phase) % 25 == 0)
+                UpdateCategorization(agent, tile);
+
+            if ((tick + phase) % 30 == 0)
+                UpdateCompositionality(agent, tile);
+
+            if ((tick + phase) % 20 == 0)
+                UpdateSpatial(agent, tile, tick);
+        }
+
+        // ============================================================
+        // 1. ОБЪЕКТНАЯ ПЕРМАНЕНТНОСТЬ
+        // ============================================================
+        private static void UpdateObjectPermanence(Agent agent, Tile tile, int tick)
+        {
+            if (!ObjectMemory.TryGetValue(agent.Id, out var memory))
+            {
+                memory = new List<SeenObject>();
+                ObjectMemory[agent.Id] = memory;
+            }
+
+            // Удаляем старые воспоминания
+            memory.RemoveAll(m => tick - m.LastSeenTick > 2000);
+
+            int scanned = 0;
+
+            foreach (var obj in tile.GroundObjects)
+            {
+                if (scanned++ >= 12)
+                    break;
+
+                if (obj == null || obj.Quantity <= 0.1f)
+                    continue;
+
+                float importance = CalculateObjectImportance(agent, obj.MaterialId);
+
+                RememberObject(
+                    memory,
+                    obj.MaterialId,
+                    new Vector2(tile.X, tile.Y),
+                    obj.Quantity,
+                    importance,
+                    tick);
+            }
+
+            TrimSeenObjects(memory);
+
+            CognitionSystem.Record("object_permanence.memory", memory.Count);
+        }
+
+        private static void RememberObject(
+            List<SeenObject> memory,
+            string materialId,
+            Vector2 position,
+            float quantity,
+            float importance,
+            int tick)
+        {
+            var existing = memory.FirstOrDefault(m =>
+                m.MaterialId == materialId &&
+                m.Position == position);
+
+            if (existing != null)
+            {
+                existing.LastSeenTick = tick;
+                existing.Quantity = quantity;
+                existing.Importance = Math.Max(existing.Importance * 0.8f, importance);
+            }
+            else
+            {
+                memory.Add(new SeenObject
+                {
+                    MaterialId = materialId,
+                    Position = position,
+                    LastSeenTick = tick,
+                    Quantity = quantity,
+                    Importance = importance
+                });
+            }
+        }
+
+        private static float CalculateObjectImportance(Agent agent, string materialId)
+        {
+            if (!MaterialDB.TryGet(materialId, out var spec))
+                return 0.05f;
+
+            float importance = 0.1f;
+
+            if (spec.Organic > 0.5f)
+                importance += 0.8f + agent.Body.Hunger / 150f;
+
+            if (spec.Hardness > 0.6f)
+                importance += 0.35f;
+
+            if (spec.Conductivity > 0.6f)
+                importance += 0.30f;
+
+            if (spec.Logic > 0.5f)
+                importance += 0.55f;
+
+            if (spec.Rarity > 0.7f)
+                importance += 0.35f;
+
+            return importance;
+        }
+
+        private static void TrimSeenObjects(List<SeenObject> memory)
+        {
+            while (memory.Count > 32)
+            {
+                int worstIndex = 0;
+                float worstImportance = float.MaxValue;
+
+                for (int i = 0; i < memory.Count; i++)
+                {
+                    if (memory[i].Importance < worstImportance)
+                    {
+                        worstImportance = memory[i].Importance;
+                        worstIndex = i;
+                    }
+                }
+
+                memory.RemoveAt(worstIndex);
+            }
+        }
+
+        // ============================================================
+        // 2. КАТЕГОРИЗАЦИЯ
+        // ============================================================
+        private static void UpdateCategorization(Agent agent, Tile tile)
+        {
+            if (!CategoryMemory.TryGetValue(agent.Id, out var categories))
+            {
+                categories = new Dictionary<string, int>();
+                CategoryMemory[agent.Id] = categories;
+            }
+
+            int scanned = 0;
+
+            foreach (var obj in agent.Body.Inventory)
+            {
+                if (scanned++ >= 6)
+                    break;
+
+                if (!MaterialDB.TryGet(obj.MaterialId, out var spec))
+                    continue;
+
+                string category = Categorize(spec);
+
+                if (!categories.ContainsKey(category))
+                    categories[category] = 0;
+
+                categories[category]++;
+
+                CognitionSystem.Record("category." + category, 1f);
+            }
+
+            scanned = 0;
+
+            foreach (var obj in tile.GroundObjects)
+            {
+                if (scanned++ >= 8)
+                    break;
+
+                if (!MaterialDB.TryGet(obj.MaterialId, out var spec))
+                    continue;
+
+                string category = Categorize(spec);
+
+                if (!categories.ContainsKey(category))
+                    categories[category] = 0;
+
+                categories[category]++;
+
+                CognitionSystem.Record("category." + category, 1f);
+            }
+
+            if (categories.Count > 24)
+                categories.Clear();
+        }
+
+        private static string Categorize(ResourceSpec spec)
+        {
+            if (spec.Organic > 0.60f)
+                return "organic";
+
+            if (spec.Hardness > 0.65f)
+                return "hard";
+
+            if (spec.Conductivity > 0.60f)
+                return "conductive";
+
+            if (spec.Flexibility > 0.60f)
+                return "flexible";
+
+            if (spec.Logic > 0.55f)
+                return "logic";
+
+            if (spec.Rarity > 0.75f)
+                return "rare";
+
+            if (spec.HeatOutput > 0.60f)
+                return "hot";
+
+            if (spec.Buoyancy > 0.60f)
+                return "buoyant";
+
+            return "common";
+        }
+
+        // ============================================================
+        // 3. КОМПОЗИЦИОННОСТЬ
+        // Агент замечает, что композит состоит из частей
+        // ============================================================
+        private static void UpdateCompositionality(Agent agent, Tile tile)
+        {
+            int scanned = 0;
+
+            foreach (var obj in agent.Body.Inventory)
+            {
+                if (scanned++ >= 6)
+                    break;
+
+                ScanComposite(agent, obj.MaterialId);
+            }
+
+            scanned = 0;
+
+            foreach (var obj in tile.GroundObjects)
+            {
+                if (scanned++ >= 8)
+                    break;
+
+                ScanComposite(agent, obj.MaterialId);
+            }
+        }
+
+        private static void ScanComposite(Agent agent, string materialId)
+        {
+            if (string.IsNullOrEmpty(materialId))
+                return;
+
+            if (!materialId.Contains("+"))
+                return;
+
+            if (!MaterialDB.TryGet(materialId, out var spec))
+                return;
+
+            int parts = materialId.Split('+').Length;
+
+            CognitionSystem.Record("composition.parts", parts);
+            CognitionSystem.Record("composition.depth", spec.Depth);
+
+            if (spec.Depth > 2)
+                CognitionSystem.Record("composition.deep", 1f);
+        }
+
+        // ============================================================
+        // 4. ПРОСТРАНСТВЕННОЕ МЫШЛЕНИЕ
+        // ============================================================
+        private static void UpdateSpatial(Agent agent, Tile tile, int tick)
+        {
+            if (!_placeMemories.TryGetValue(agent.Id, out var places))
+            {
+                places = new List<PlaceMemory>();
+                _placeMemories[agent.Id] = places;
+            }
+
+            places.RemoveAll(p => tick - p.LastSeenTick > 2500);
+
+            float homeDistance = agent.Position.Distance(agent.HomePosition);
+
+            CognitionSystem.Record("spatial.home_distance", homeDistance);
+
+            if (homeDistance > 25f)
+                CognitionSystem.Record("spatial.far", 1f);
+
+            if (tile.TotalFood > 50f)
+                RememberPlace(places, new Vector2(tile.X, tile.Y), "food", tick, 1f);
+
+            if (tile.InstitutionLevel > 1f ||
+                tile.Building == BuildingType.Library ||
+                tile.Building == BuildingType.Temple)
+            {
+                RememberPlace(places, new Vector2(tile.X, tile.Y), "knowledge", tick, 1f);
+            }
+
+            if (tile.Building == BuildingType.House)
+                RememberPlace(places, new Vector2(tile.X, tile.Y), "shelter", tick, 0.8f);
+
+            if (tile.SanctityLevel > 20f)
+                RememberPlace(places, new Vector2(tile.X, tile.Y), "sacred", tick, 0.7f);
+
+            TrimPlaces(places);
+
+            CognitionSystem.Record("spatial.places", places.Count);
+        }
+
+        private static void RememberPlace(
+            List<PlaceMemory> places,
+            Vector2 position,
+            string kind,
+            int tick,
+            float importance)
+        {
+            var existing = places.FirstOrDefault(p =>
+                p.Kind == kind &&
+                p.Position == position);
+
+            if (existing != null)
+            {
+                existing.LastSeenTick = tick;
+                existing.Importance = Math.Max(existing.Importance * 0.8f, importance);
+            }
+            else
+            {
+                places.Add(new PlaceMemory
+                {
+                    Position = position,
+                    Kind = kind,
+                    LastSeenTick = tick,
+                    Importance = importance
+                });
+            }
+        }
+
+        private static void TrimPlaces(List<PlaceMemory> places)
+        {
+            while (places.Count > 16)
+            {
+                int oldestIndex = 0;
+                int oldestTick = int.MaxValue;
+
+                for (int i = 0; i < places.Count; i++)
+                {
+                    if (places[i].LastSeenTick < oldestTick)
+                    {
+                        oldestTick = places[i].LastSeenTick;
+                        oldestIndex = i;
+                    }
+                }
+
+                places.RemoveAt(oldestIndex);
+            }
+        }
+
+        // ============================================================
+        // ИСПОЛЬЗОВАНИЕ ПАМЯТИ ДЛЯ ПОВЕДЕНИЯ
+        // ============================================================
+        public static bool TryUseSpatialGoals(Agent agent, Tile[,] world, Random rng)
+        {
+            if (agent == null || world == null || rng == null)
+                return false;
+
+            // 1. Если голоден и помнит еду — идёт к запомненной еде
+            if (agent.Body.Hunger > 60f &&
+                ObjectMemory.TryGetValue(agent.Id, out var objects))
+            {
+                var foodMemory = objects
+                    .Where(o =>
+                        o.Importance > 0.8f &&
+                        o.Quantity > 0.5f &&
+                        o.Position != agent.Position)
+                    .OrderBy(o => agent.Position.Distance(o.Position))
+                    .FirstOrDefault();
+
+                if (foodMemory != null &&
+                    agent.Position.Distance(foodMemory.Position) <= 18f &&
+                    rng.NextDouble() < 0.60f)
+                {
+                    if (MoveToward(agent, world, foodMemory.Position))
+                    {
+                        agent.LastAction = "SeekRememberedFood";
+                        return true;
+                    }
+                }
+            }
+
+            // 2. Если очень одинок — может вернуться к дому
+            if (agent.Loneliness > 80f &&
+                rng.NextDouble() < 0.30f)
+            {
+                if (agent.Position.Distance(agent.HomePosition) > 3f)
+                {
+                    if (MoveToward(agent, world, agent.HomePosition))
+                    {
+                        agent.LastAction = "ReturnHome";
+                        return true;
+                    }
+                }
+            }
+
+            // 3. Если любопытный и логичный — может идти к месту знания
+            if (agent.Curiosity > 0.70f &&
+                agent.Logic > 0.45f &&
+                _placeMemories.TryGetValue(agent.Id, out var places))
+            {
+                var knowledgePlace = places
+                    .Where(p =>
+                        p.Kind == "knowledge" &&
+                        p.Position != agent.Position)
+                    .OrderBy(p => agent.Position.Distance(p.Position))
+                    .FirstOrDefault();
+
+                if (knowledgePlace != null &&
+                    agent.Position.Distance(knowledgePlace.Position) <= 20f &&
+                    rng.NextDouble() < 0.25f)
+                {
+                    if (MoveToward(agent, world, knowledgePlace.Position))
+                    {
+                        agent.LastAction = "SeekKnowledgePlace";
+                        return true;
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MoveToward(Agent agent, Tile[,] world, Vector2 target)
+        {
+            int dx = Math.Sign(target.X - agent.Position.X);
+            int dy = Math.Sign(target.Y - agent.Position.Y);
+
+            if (dx != 0 && TryStep(agent, world, agent.Position.X + dx, agent.Position.Y))
+                return true;
+
+            if (dy != 0 && TryStep(agent, world, agent.Position.X, agent.Position.Y + dy))
+                return true;
+
+            return false;
+        }
+
+        private static bool TryStep(Agent agent, Tile[,] world, int x, int y)
+        {
+            if (world == null)
+                return false;
+
+            if (x < 0 || y < 0 || x >= world.GetLength(0) || y >= world.GetLength(1))
+                return false;
+
+            var tile = world[x, y];
+
+            bool canEnter = tile.IsPassable || CombinationEngine.CanCross(agent, tile.Terrain);
+
+            if (!canEnter)
+                return false;
+
+            agent.Position = new Vector2(x, y);
+            return true;
+        }
+
+        // ============================================================
+        // ОЧИСТКА ПАМЯТИ ПРИ СМЕРТИ
+        // ============================================================
+        public static void OnAgentDeath(Guid agentId)
+        {
+            ObjectMemory.Remove(agentId);
+            _placeMemories.Remove(agentId);
+            CategoryMemory.Remove(agentId);
+        }
+    }
+}
