@@ -1,6 +1,6 @@
 # README.ru.md
 
-```markdown
+
 # Genesis Engine
 
 **Эмерджентная агентная симуляция развития цивилизаций**
@@ -154,7 +154,7 @@ Project/
 
 # README.md (English Version)
 
-```markdown
+
 # Genesis Engine
 
 **Emergent agent-based simulation of civilizational development**
