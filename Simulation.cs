@@ -374,7 +374,7 @@ namespace GenesisEngine
 
                 // Ферма умножает базовую регенерацию тайла
                 if (isFarm)
-                    regeneration *= (1f + tile.BuildingQuality * 3f);
+                    regeneration *= (0.1f + tile.BuildingQuality * 4f);
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
@@ -387,7 +387,7 @@ namespace GenesisEngine
                     tile.GroundObjects.Add(new WorldObject
                     {
                         MaterialId = foodId,
-                        Quantity = 2f * tile.BuildingQuality,
+                        Quantity = 0.1f * tile.BuildingQuality,
                         Position = new Vector2(tile.X, tile.Y)
                     });
                 }
