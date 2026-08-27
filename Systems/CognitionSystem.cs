@@ -301,7 +301,7 @@ namespace GenesisEngine.Systems
             float institution = 0f;
             if (tile != null && tile.InstitutionAxis == "knowledge")
             {
-                institution = Math.Min(0.20f, tile.InstitutionLevel * 0.02f);
+                institution = Math.Min(0.30f, tile.InstitutionLevel * 0.03f);  // было 0.20 / 0.02
             }
 
             float device = LogicSystem.HasLogicDeviceAt(tile) ? 0.15f : 0f;

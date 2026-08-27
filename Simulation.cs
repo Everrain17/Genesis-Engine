@@ -264,6 +264,7 @@ namespace GenesisEngine
                 }
 
                 DiplomacySystem.UpdateDiplomacy(activeCivs, Rng);
+                DiplomacySystem.UpdateWarTargets(activeCivs);
                 // === НОВОЕ: лидеры принимают решения о войне/союзах ===
                 if (TotalTicks % 500 == 0)
                 {
@@ -369,26 +370,29 @@ namespace GenesisEngine
                 if (!tile.IsPassable || tile.Fertility <= 0.05f)
                     continue;
 
+                // === НОВОЕ: истощение почвы ===
+                float effectiveFertility = tile.Fertility * (1f - tile.Exhaustion);
+                tile.Exhaustion = Math.Min(0.9f, tile.Exhaustion + 0.002f);  // медленно истощается
+                tile.Exhaustion = Math.Max(0f, tile.Exhaustion - 0.001f);    // медленно восстанавливается
+
                 float currentFood = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
-                float regeneration = tile.Fertility * 3f;
+                float regeneration = effectiveFertility * 3f;  // ← было tile.Fertility
                 bool isFarm = tile.Building == BuildingType.Farm && tile.BuildingFunctional;
 
-                // Ферма умножает базовую регенерацию тайла
                 if (isFarm)
-                    regeneration *= (0.1f + tile.BuildingQuality * 4f);
+                    regeneration *= (1f + tile.BuildingQuality * 3f);
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
                 if (tile.GroundObjects.Count > 12)
                     tile.GroundObjects.RemoveRange(0, tile.GroundObjects.Count - 12);
 
-                // === НОВОЕ: Ферма напрямую производит урожай (не зависит от Fertility) ===
                 if (isFarm)
                 {
                     tile.GroundObjects.Add(new WorldObject
                     {
                         MaterialId = foodId,
-                        Quantity = 0.1f * tile.BuildingQuality,
+                        Quantity = 0.5f * tile.BuildingQuality,  // ← уменьшено
                         Position = new Vector2(tile.X, tile.Y)
                     });
                 }
@@ -397,14 +401,14 @@ namespace GenesisEngine
                     .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
                     .Sum(o => o.Quantity);
 
-                float target = tile.Fertility * 4f;
+                float target = effectiveFertility * 40f;  // ← было tile.Fertility
                 if (isFarm)
                     target *= (1f + tile.BuildingQuality * 2f);
 
                 if (organicAmount < target)
                 {
-                    float add = Math.Min(0.1f, target - organicAmount);
-                    if (add > 1f)
+                    float add = Math.Min(2f, target - organicAmount);  // ← было 20f
+                    if (add > 0.1f)
                     {
                         tile.GroundObjects.Add(new WorldObject
                         {

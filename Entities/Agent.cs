@@ -52,7 +52,7 @@ namespace GenesisEngine.Entities
 
             if (Age > MaxAge)
             {
-                Body.Health -= 0.5f;
+                Body.Health -= 1.5f;
                 LastAction = "Age";
             }
 
@@ -308,7 +308,8 @@ namespace GenesisEngine.Entities
             // 8. Бой, если цивилизации в состоянии войны
             if (AgentEmergence.TryHostile(this, rng))
                 return;
-
+            if (AgentEmergence.TryRaid(this, rng)) 
+                return;
             // 9. Эмерджентное строительство
             if (AgentEmergence.TryBuild(this, currentTile, rng))
                 return;

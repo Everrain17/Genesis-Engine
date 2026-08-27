@@ -52,10 +52,22 @@ namespace GenesisEngine.Systems.Analytics
         private static void SetCellValue(IXLCell cell, string value, bool isHeader)
         {
             if (isHeader) { cell.Value = value; return; }
+
             if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l))
             { cell.Value = l; return; }
+
             if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double d))
-            { cell.Value = d; return; }
+            {
+                // НОВОЕ: NaN/Infinity ломают ClosedXML — пишем 0 вместо краша
+                if (double.IsNaN(d) || double.IsInfinity(d))
+                {
+                    cell.Value = 0d;
+                    return;
+                }
+                cell.Value = d;
+                return;
+            }
+
             cell.Value = value;
         }
 

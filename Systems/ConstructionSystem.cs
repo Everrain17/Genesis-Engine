@@ -25,6 +25,11 @@ namespace GenesisEngine.Systems
 
             bool knowsRecipe = civ != null && KnowledgeSystem.CivKnowsRecipe(civ, buildingConcept);
 
+            // === НОВОЕ: границы территорий ===
+            bool foreign = !string.IsNullOrEmpty(tile.OwnerCivId) && tile.OwnerCivId != agent.CivilizationId;
+            if (foreign && !string.IsNullOrEmpty(agent.CivilizationId) && !DiplomacySystem.IsAtWar(agent.CivilizationId) && rng.NextDouble() < 0.6f)
+                return false;
+
             if (!knowsRecipe)
             {
                 float experimentChance =

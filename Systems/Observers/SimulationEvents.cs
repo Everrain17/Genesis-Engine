@@ -17,7 +17,7 @@ namespace GenesisEngine.Systems.Observers
         MaterialMixed,
         SignalEmitted,
         KnowledgeTaught,
-        ArtifactCreated
+        ArtifactCreated, Raid
     }
 
     public class SimEvent

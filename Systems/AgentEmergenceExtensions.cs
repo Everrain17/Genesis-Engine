@@ -103,7 +103,7 @@ namespace GenesisEngine.Systems
 
         public static bool TrySocial(Agent a, Tile tile, Random rng)
         {
-            var nearby = SpatialGrid.GetNearby(a.Position, 2);
+            var nearby = SpatialGrid.GetNearby(a.Position, 7);
 
             foreach (var other in nearby)
             {
@@ -226,10 +226,13 @@ namespace GenesisEngine.Systems
             float peace = DiplomacySystem.PeaceStability(a.CivilizationId);
 
             // Если цивилизация долго жила в мире, она менее склонна к агрессии.
-            if (peace > 0.65f && rng.NextDouble() < 0.70f)
+            if (peace > 0.85f && rng.NextDouble() < 0.50f)
                 return false;
 
-            var nearby = SpatialGrid.GetNearby(a.Position, 1);
+            if (string.IsNullOrEmpty(a.CivilizationId)) return false;
+            if (!DiplomacySystem.IsAtWar(a.CivilizationId)) return false;
+
+            var nearby = SpatialGrid.GetNearby(a.Position, 25);
 
             foreach (var other in nearby)
             {
@@ -256,7 +259,7 @@ namespace GenesisEngine.Systems
                     a.Genome.Courage * 0.08f;
 
                 // Долгая война истощает цивилизацию и снижает агрессию.
-                attackChance *= 1f - Math.Clamp(warPressure * 0.60f, 0f, 0.70f);
+                attackChance *= 1f - Math.Clamp(warPressure * 0.30f, 0f, 0.50f);
 
                 if (peace > 0.40f)
                     attackChance *= 0.50f;
@@ -266,7 +269,9 @@ namespace GenesisEngine.Systems
                     other.LastAction = "Combat";
 
                     CombatSystem.Fight(a, other, Simulation.Instance.World);
-
+                    // НОВОЕ: регистрируем потери
+                    if (other.Body.Health <= 0)
+                        DiplomacySystem.RecordLoss(other.CivilizationId);
                     EventBus.Publish(new SimEvent
                     {
                         Type = SimEventType.Combat,
@@ -307,8 +312,8 @@ namespace GenesisEngine.Systems
 
         private static bool MoveToward(Agent a, Vector2 target)
         {
-            int dx = Math.Sign(target.X - a.Position.X);
-            int dy = Math.Sign(target.Y - a.Position.Y);
+            int dx = (int)Math.Sign((double)(target.X - a.Position.X)); 
+            int dy = (int)Math.Sign((double)(target.Y - a.Position.Y));
 
             if (dx != 0 && TryStep(a, a.Position.X + dx, a.Position.Y))
                 return true;
@@ -316,6 +321,32 @@ namespace GenesisEngine.Systems
             if (dy != 0 && TryStep(a, a.Position.X, a.Position.Y + dy))
                 return true;
 
+            return false;
+        }
+        public static bool TryRaid(Agent a, Random rng)
+        {
+            if (string.IsNullOrEmpty(a.CivilizationId)) return false;
+            if (!DiplomacySystem.IsAtWar(a.CivilizationId)) return false;
+            if (a.Genome.Aggression < 0.5f || a.Fear > 60f) return false;
+            var target = DiplomacySystem.GetWarTarget(a.CivilizationId);
+            if (target == null) return false;
+            if (a.Position.Distance(target.Value) <= 8f) return false; // уже на фронте — дерётся TryHostile
+            if (rng.NextDouble() < 0.25f + a.Genome.Aggression * 0.25f)
+            {
+                if (MoveToward(a, target.Value))
+                {
+                    a.LastAction = "Raid";
+                    if (rng.NextDouble() < 0.05f)   // прореживание, иначе спам на тысячи строк
+                        EventBus.Publish(new SimEvent
+                        {
+                            Type = SimEventType.Raid,
+                            Tick = Simulation.Instance.TotalTicks,
+                            Actor = a,
+                            Position = a.Position
+                        });
+                    return true;
+                }
+            }
             return false;
         }
 

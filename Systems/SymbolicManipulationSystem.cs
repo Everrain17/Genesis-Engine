@@ -40,7 +40,7 @@ namespace GenesisEngine.Systems
             if (agent == null || tile == null || rng == null) return false;
 
             if (tile.InstitutionAxis != "knowledge" || tile.InstitutionLevel < 2f) return false;
-            if (agent.Logic < 0.55f || agent.Genome.SelfAwareness < 0.5f) return false;
+            if (agent.Logic < 0.45f || agent.Genome.SelfAwareness < 0.5f) return false;  // было 0.55
 
             string civId = agent.CivilizationId ?? "wild";
             var graphemes = GraphemeSystem.GetGraphemes(civId);

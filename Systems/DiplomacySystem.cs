@@ -255,6 +255,29 @@ namespace GenesisEngine.Systems
             }
         }
 
+        private static readonly Dictionary<string, Vector2> _warTargets = new();
+
+        public static Vector2? GetWarTarget(string civId) =>
+            _warTargets.TryGetValue(civId, out var v) ? v : null;
+
+        public static void UpdateWarTargets(List<CivilizationSnapshot> civs)
+        {
+            _warTargets.Clear();
+            if (civs == null) return;
+            foreach (var civ in civs)
+            {
+                foreach (var other in civs)
+                {
+                    if (other.Id == civ.Id || other.Members.Count == 0) continue;
+                    if (GetState(civ.Id, other.Id) != DiplomaticRelation.War) continue;
+                    int cx = 0, cy = 0;
+                    foreach (var m in other.Members) {cx += m.Position.X; cy += m.Position.Y; }
+                    _warTargets[civ.Id] = new Vector2(cx / other.Members.Count, cy / other.Members.Count);
+                    break;
+                }
+            }
+        }
+
         public static void LeaderDecideDiplomacy(
             CivilizationSnapshot civ,
             Agent leader,

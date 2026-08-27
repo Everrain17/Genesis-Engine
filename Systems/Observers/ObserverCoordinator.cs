@@ -75,6 +75,9 @@ namespace GenesisEngine.Systems.Observers
                 case SimEventType.Combat:
                     Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Combat", e.Actor?.CivilizationId, "");
                     break;
+                case SimEventType.Raid:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Raid", e.Actor?.CivilizationId, "");
+                    break;
                 case SimEventType.BuildingCreated:
                     Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "BuildingCreated", e.Actor?.CivilizationId, e.Data ?? "");
                     break;

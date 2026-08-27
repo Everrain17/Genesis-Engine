@@ -6,7 +6,7 @@
         // Мягкие лимиты памяти.
         // Если false — память агентов и паттерны не обрезаются.
         // ============================================================
-        public static bool EnableSoftMemoryCaps = false;
+        public static bool EnableSoftMemoryCaps = true;
 
         public static int MaxAgentMemories = 4096;
         public static int MaxPatternsPerAgent = 512;
