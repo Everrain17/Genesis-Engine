@@ -15,6 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
+        public const string CodeVersion = "v2-main";   // в ветке v1-paper поставить "v1-paper"
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
@@ -396,13 +397,13 @@ namespace GenesisEngine
                     .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
                     .Sum(o => o.Quantity);
 
-                float target = tile.Fertility * 40f;
+                float target = tile.Fertility * 4f;
                 if (isFarm)
                     target *= (1f + tile.BuildingQuality * 2f);
 
                 if (organicAmount < target)
                 {
-                    float add = Math.Min(20f, target - organicAmount);
+                    float add = Math.Min(0.1f, target - organicAmount);
                     if (add > 1f)
                     {
                         tile.GroundObjects.Add(new WorldObject
@@ -511,7 +512,7 @@ namespace GenesisEngine
             // Генерируем уникальный ID прогона
             DateTime now = DateTime.Now;
             string runId = now.ToString("yyyy-MM-dd_HH-mm-ss");
-            string runDir = Path.Combine("data", $"BigData_{now:dd.MM.yyyy_HH.mm.ss}");
+            string runDir = Path.Combine("data", $"BigData_{CodeVersion}_{now:dd.MM.yyyy_HH.mm.ss}");
 
             // Флаг для graceful shutdown
             bool running = true;

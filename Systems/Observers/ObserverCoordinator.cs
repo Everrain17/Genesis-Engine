@@ -67,7 +67,10 @@ namespace GenesisEngine.Systems.Observers
                     Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "AgentDied", e.Actor?.CivilizationId, e.Data ?? "");
                     break;
                 case SimEventType.Trade:
-                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Trade", e.Actor?.CivilizationId, "");
+                    Analytics.ExtendedMetricsLogger.LogEvent(
+                        e.Tick, "Trade",
+                        e.Actor?.CivilizationId,
+                        $"to {e.Target?.CivilizationId ?? "wild"}");   
                     break;
                 case SimEventType.Combat:
                     Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "Combat", e.Actor?.CivilizationId, "");
