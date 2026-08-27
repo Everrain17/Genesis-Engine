@@ -15,6 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
+        public const string CodeVersion = "v1-paper";   // в ветке v1-paper поставить "v1-paper"
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
@@ -465,8 +466,8 @@ namespace GenesisEngine
             // Генерируем уникальный ID прогона
             DateTime now = DateTime.Now;
             string runId = now.ToString("yyyy-MM-dd_HH-mm-ss");
-            string runDir = Path.Combine("data", $"BigData_{now:dd.MM.yyyy_HH.mm.ss}");
-
+            string runDir = Path.Combine("data", $"BigData_{CodeVersion}_{now:dd.MM.yyyy_HH.mm.ss}");
+            
             // Флаг для graceful shutdown
             bool running = true;
 
