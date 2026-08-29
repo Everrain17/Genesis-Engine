@@ -37,7 +37,7 @@ namespace GenesisEngine.Systems.Analytics
 
             if (!File.Exists(_filePath))
             {
-                File.WriteAllText(_filePath, "RunId,Tick,Population,Era,Farms,Settlements,AvgToolHardness\n");
+                File.WriteAllText(_filePath, "RunId,Tick,Population,Era,Farms,Settlements,AvgToolHardness,Infected,HerdImmunity,Season");
             }
 
             if (!File.Exists(_diagnosticsPath))
@@ -110,9 +110,13 @@ namespace GenesisEngine.Systems.Analytics
             AnalyzeEraAndHardness(agents, out string era, out float avgToolHardness);
             var counts = CountFarmAndSettlement(agents, world);
 
-            string line = $"{_runId},{tick},{agents.Count},{era},{counts.farms},{counts.settlements},{avgToolHardness:F2}";
+            // === v3: эпидемия ===
+            int infected = agents.Count(a => a.Infected);
+            float herd = EpidemicSystem.GetHerdImmunity(agents);
+            string season = SeasonSystem.GetSeasonName(SeasonSystem.GetCurrentSeason(tick));
+            string line = $"{_runId},{tick},{agents.Count},{era},{counts.farms},{counts.settlements}," +
+                          $"{avgToolHardness:F2},{infected},{herd:F3},{season}";
 
-            // В очередь вместо прямой записи
             _csvQueue.Enqueue(line);
         }
 

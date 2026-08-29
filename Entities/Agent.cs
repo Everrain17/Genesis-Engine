@@ -26,6 +26,11 @@ namespace GenesisEngine.Entities
         public AgentRole Role = AgentRole.None;
         public float Age, MaxAge;
         public float Fear, Curiosity, Loneliness, Despair;
+        public bool Infected;
+        public float InfectionTimer;
+        public string InfectedWith;                                // Тип текущего патогена (например, "marsh-fever")
+        public Dictionary<string, float> PathogenImmunity = new(); // Приобретённый иммунитет (0.0 - 0.9)
+        public Dictionary<string, int> PathogenSurvivals = new();  // Счётчик выживаний для генетической ассимиляции
         public string LastAction;
         public float Logic;
 
@@ -56,6 +61,8 @@ namespace GenesisEngine.Entities
                 LastAction = "Age";
             }
 
+ 
+
             Body.Metabolize(1f);
 
             if (Body.Hunger >= 100f && Body.Health <= 0f)
@@ -76,25 +83,44 @@ namespace GenesisEngine.Entities
 
             var rng = RandomProvider.GetRandom();
             Tile currentTile = world[Position.X, Position.Y];
-            // === НОВОЕ: Запуск когнитивных примитивов ===
+            var season = Simulation.Instance.CurrentSeason;
+            if (season == SeasonSystem.Season.Winter)
+            {
+                float clothingProtection = 0f;
+                if (Body.Inventory.Any(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f))
+                    clothingProtection += 0.3f;
+
+                Tile winterTile = Simulation.Instance.World[(int)Position.X, (int)Position.Y];
+                if (winterTile.IsHouse || winterTile.IsTemple)
+                    clothingProtection += 0.5f;
+
+                float coldDamage = SeasonSystem.GetColdDamage(season, clothingProtection);
+                Body.Health -= coldDamage;
+
+                if (Body.Health <= 0 && LastAction != "Age")
+                    LastAction = "Cold";
+            }
+            // === v3: эпидемии ===
+            EpidemicSystem.Update(this, currentTile, rng);
+            if (Body.Health <= 0)
+            {
+                if (Infected) LastAction = "Plague";
+                return;
+            }
+
             CognitivePrimitives.UpdateCognitivePrimitives(this);
             AdvancedCognitivePrimitives.Update(this, currentTile, rng);
-            // === ПАКЕТ 9: высшие когнитивные примитивы ===
             HigherCognitivePrimitives.Update(this, currentTile, rng);
             if (Simulation.Instance.TotalTicks % 10 == 0)
                 CognitionSystem.UpdateAgentLogic(this);
 
-            // Эмерджентные сигналы потребностей
             AgentEmergence.EmitNeedsSignals(this, rng);
             LanguageSystem.TrySpeakContext(this, rng);
             GrammarSystem.TrySpeakGrammar(this, rng);
 
-            // Реакция на чужие сигналы
             if (AgentEmergence.HandleSignals(this, rng))
                 return;
 
-            // Локальные соседи.
-            // Используется и для одиночества, и для размножения.
             var nearby = SpatialGrid.GetNearby(Position, 2);
 
             if (nearby.Any(a => a.Id != Id && Memory.GetTrust(a.Id) > 0f))
@@ -127,23 +153,13 @@ namespace GenesisEngine.Entities
                         var mother = BiologicalSex == Sex.Female ? this : partner;
                         var father = BiologicalSex == Sex.Male ? this : partner;
 
-                        // Определяем цивилизацию ребёнка
                         string childCivId = "";
                         if (!string.IsNullOrEmpty(mother.CivilizationId) && mother.CivilizationId == partner.CivilizationId)
-                        {
-                            // Оба родителя из одной цивилизации
                             childCivId = mother.CivilizationId;
-                        }
                         else if (!string.IsNullOrEmpty(mother.CivilizationId))
-                        {
-                            // Только мать из цивилизации
                             childCivId = mother.CivilizationId;
-                        }
                         else if (!string.IsNullOrEmpty(partner.CivilizationId))
-                        {
-                            // Только отец из цивилизации
                             childCivId = partner.CivilizationId;
-                        }
 
                         var child = new Agent(Position, rng, Simulation.Instance.TotalTicks,
                             Math.Max(Generation, partner.Generation) + 1)
@@ -171,7 +187,6 @@ namespace GenesisEngine.Entities
                 }
             }
 
-            // Если очень голоден и тащит неорганический мусор — выбросить его
             if (Body.Hunger > 50f)
             {
                 var nonFood = Body.Inventory.FirstOrDefault(o =>
@@ -200,6 +215,8 @@ namespace GenesisEngine.Entities
                     if (foodItem.Quantity <= 0f)
                         Body.Inventory.Remove(foodItem);
 
+                    ScatterSeed(currentTile, rng);   // v3: поел — уронил семечко
+
                     LastAction = "Consume";
                     return;
                 }
@@ -227,6 +244,7 @@ namespace GenesisEngine.Entities
                     if (ManipulationSystem.PickUp(this, groundFood, amount))
                     {
                         ObservationSystem.RecordPattern(this, "PickUp", groundFood, null, 10f);
+                        currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.01f); // v3: сбор истощает землю
                         LastAction = "PickUp";
                         return;
                     }
@@ -239,6 +257,10 @@ namespace GenesisEngine.Entities
                     currentTile.Resources[ResourceType.Food] = tileFood - 1f;
                     Body.Hunger = Math.Max(0f, Body.Hunger - 18f);
                     Body.Energy = Math.Min(100f, Body.Energy + 8f);
+
+                    ScatterSeed(currentTile, rng);   // v3
+                    currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.02f); // v3
+
                     LastAction = "Forage";
                     return;
                 }
@@ -290,7 +312,7 @@ namespace GenesisEngine.Entities
                 }
             }
 
-            // 6. Социальные действия: обучение, артефакты
+            // 6. Социальные действия
             if (AgentEmergence.TrySocial(this, currentTile, rng))
                 return;
 
@@ -301,20 +323,22 @@ namespace GenesisEngine.Entities
                 return;
 
             LogicExperimentSystem.TryExperiment(this, currentTile, rng);
+
             // 7. Охота
             if (AgentEmergence.TryHunt(this, currentTile, rng))
                 return;
 
-            // 8. Бой, если цивилизации в состоянии войны
+            // 8. Бой + v3: рейды
             if (AgentEmergence.TryHostile(this, rng))
                 return;
-            if (AgentEmergence.TryRaid(this, rng)) 
+
+            if (AgentEmergence.TryRaid(this, rng))
                 return;
+
             // 9. Эмерджентное строительство
             if (AgentEmergence.TryBuild(this, currentTile, rng))
                 return;
 
-            // === ПАКЕТ 8: целевое движение по памяти ===
             if (AdvancedCognitivePrimitives.TryUseSpatialGoals(this, world, rng))
                 return;
 
@@ -362,6 +386,22 @@ namespace GenesisEngine.Entities
                 {
                     Position = new Vector2(nx, ny);
                 }
+            }
+        }
+
+        // v3: поел — уронил семечко (побочный продукт, не «изобретение»)
+        private void ScatterSeed(Tile tile, Random rng)
+        {
+            if (tile == null) return;
+            if (rng.NextDouble() < 0.12f)
+            {
+                tile.GroundObjects.Add(new WorldObject
+                {
+                    MaterialId = MaterialDB.GetFoodMaterialId(),
+                    Quantity = 0.5f,
+                    Position = new Vector2(tile.X, tile.Y),
+                    IsSeed = true
+                });
             }
         }
 

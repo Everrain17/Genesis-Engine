@@ -91,6 +91,9 @@ namespace GenesisEngine.Systems
             if (tile.Building == BuildingType.Library || tile.DominantAxis == "knowledge")
                 return "knowledge";
 
+            if (tile.Building == BuildingType.Hospice || tile.DominantAxis == "healing")   // НОВОЕ
+                return "healing";
+
             if (tile.Building == BuildingType.Temple || tile.DominantAxis == "faith")
                 return "faith";
 

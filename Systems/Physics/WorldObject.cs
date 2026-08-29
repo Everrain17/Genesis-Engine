@@ -10,7 +10,7 @@ namespace GenesisEngine.Systems.Physics
         public float Quantity = 1f;
         public Guid HolderId = Guid.Empty;
         public Vector2? Position = null;
-
+        public bool IsSeed = false;   // v3: эмерджентные огороды
         private static readonly Dictionary<string, float> EmptyProperties = new();
         private static readonly Dictionary<string, Dictionary<string, float>> PropertiesCache = new();
         private static readonly object CacheLock = new();

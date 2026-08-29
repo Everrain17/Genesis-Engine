@@ -242,99 +242,56 @@ namespace GenesisEngine.Systems
 
         public static WrittenText WriteKnowledge(Agent author, Tile tile, Knowledge k)
         {
-            if (author == null || tile == null || k == null)
-                return null;
-
-            if (!k.Knowers.Contains(author.Id))
-                return null;
-
-            if (k.RecordedInText)
-                return null;
+            if (author == null || tile == null || k == null) return null;
+            if (!k.Knowers.Contains(author.Id)) return null;
+            if (k.RecordedInText) return null;
 
             bool knowledgePlace =
-                tile.Building == BuildingType.Library ||
-                tile.Building == BuildingType.Temple ||
+                tile.IsLibrary || tile.IsTemple ||
                 tile.DominantAxis == "knowledge" ||
-                tile.SanctityLevel > 20f ||
-                tile.InstitutionLevel > 1f;
+                tile.SanctityLevel > 20f || tile.InstitutionLevel > 1f;
 
-            float chance =
-                0.30f +
-                author.Genome.SelfAwareness * 0.35f +
-                (knowledgePlace ? 0.20f : 0f) +
-                tile.InstitutionLevel * 0.02f;
-
+            float chance = 0.30f + author.Genome.SelfAwareness * 0.35f + (knowledgePlace ? 0.20f : 0f) + tile.InstitutionLevel * 0.02f;
             chance = Math.Clamp(chance, 0f, 0.95f);
-
-            if (RandomProvider.GetFloat() > chance)
-                return null;
+            if (RandomProvider.GetFloat() > chance) return null;
 
             var text = CultureSystem.CreateKnowledgeText(author, tile, k);
-
-            if (text == null)
-                return null;
-
+            if (text == null) return null;
             k.RecordedInText = true;
-
-            FileLogger.Log(
-                $"[TICK {Simulation.Instance.TotalTicks}] KNOWLEDGE RECORDED: '{k.Name}' [{k.DominantAxis}] by {author.Id}",
-                FileLogger.LogLevel.Info);
-
+            FileLogger.Log($"[TICK {Simulation.Instance.TotalTicks}] KNOWLEDGE RECORDED: '{k.Name}' [{k.DominantAxis}] by {author.Id}", FileLogger.LogLevel.Info);
             return text;
         }
 
         public static bool TryReadFromText(Agent reader, Tile tile, Random rng)
         {
-            if (reader == null || tile == null || tile.Texts.Count == 0)
-                return false;
-
+            if (reader == null || tile == null || tile.Texts.Count == 0) return false;
             EnsureIndexes();
-
             var text = tile.Texts[rng.Next(tile.Texts.Count)];
-
-            if (text.KnowledgeIds.Count == 0)
-                return false;
+            if (text.KnowledgeIds.Count == 0) return false;
 
             float symbolChance = SymbolSystem.ReadChance(reader, text.EncodedSymbols ?? new List<string>());
-
             bool learnedAnything = false;
-
             foreach (var knowledgeId in text.KnowledgeIds)
             {
-                if (!_byId.TryGetValue(Safe(knowledgeId), out var knowledge))
-                    continue;
+                if (!_byId.TryGetValue(Safe(knowledgeId), out var knowledge)) continue;
+                if (knowledge.Knowers.Contains(reader.Id)) continue;
 
-                if (knowledge.Knowers.Contains(reader.Id))
-                    continue;
-
-                float chance =
-                    symbolChance +
-                    reader.Genome.Openness * 0.10f +
-                    tile.InstitutionLevel * 0.02f;
-
-                if (tile.Building == BuildingType.Library)
-                    chance += 0.15f;
-
-                if (tile.DominantAxis == "knowledge")
-                    chance += 0.10f;
-
+                float chance = symbolChance + reader.Genome.Openness * 0.10f + tile.InstitutionLevel * 0.02f;
+                if (tile.IsLibrary) chance += 0.15f;                 // v3: через функцию
+                if (tile.DominantAxis == "knowledge") chance += 0.10f;
                 chance = Math.Clamp(chance, 0f, 0.95f);
 
                 if (rng.NextDouble() < chance)
                 {
                     AddKnowerIndexed(knowledge, reader.Id);
                     learnedAnything = true;
-
                     _readCountSinceLastLog++;
                     _readsSinceLastCsv++;
-                    if (!_readByKnowledge.ContainsKey(knowledge.Name))
-                        _readByKnowledge[knowledge.Name] = 0;
+                    if (!_readByKnowledge.ContainsKey(knowledge.Name)) _readByKnowledge[knowledge.Name] = 0;
                     _readByKnowledge[knowledge.Name]++;
-                    
                     LogReadsIfNeeded();
                 }
             }
-
             return learnedAnything;
         }
 
@@ -553,39 +510,24 @@ namespace GenesisEngine.Systems
             if (civ == null)
                 return;
 
-            foreach (var bt in new[] { BuildingType.Farm, BuildingType.House })
+            foreach (var axisKey in new[] { "food", "shelter" })
             {
-                string concept = bt.ToString();
-
-                if (CivKnowsRecipe(civ, concept))
-                    continue;
-
-                string axis = bt == BuildingType.Farm ? "food" : "shelter";
-
-                var profile = new Dictionary<string, float>
-                {
-                    [axis] = 0.05f
-                };
-
+                if (CivKnowsRecipe(civ, axisKey)) continue;
                 var k = new Knowledge
                 {
                     Kind = "recipe",
                     Branch = "building",
-                    Sub = axis,
-                    DominantAxis = axis,
-                    Concept = concept,
-                    Name = "ancestral-" + (bt == BuildingType.Farm ? "plow" : "house"),
-                    Profile = profile,
+                    Sub = axisKey,
+                    DominantAxis = axisKey,
+                    Concept = axisKey,
+                    Name = "ancestral-" + axisKey,
+                    Profile = new Dictionary<string, float> { [axisKey] = 0.05f },
                     Power = 0.05f,
                     Quality = 1
                 };
-
-                foreach (var m in civ.Members)
-                    k.Knowers.Add(m.Id);
-
+                foreach (var m in civ.Members) k.Knowers.Add(m.Id);
                 All.Add(k);
             }
-
             MarkDirty();
         }
 
@@ -695,6 +637,9 @@ namespace GenesisEngine.Systems
 
             tradeDemand = Math.Max(0.03f, tradeDemand);
 
+            float coldSeason = SeasonSystem.GetCurrentSeason(Simulation.Instance.TotalTicks) == SeasonSystem.Season.Winter ? 0.6f : 0.2f;
+            // в словарь result:
+            
             float warDemand =
                 fear *
                 (atWar ? 0.85f : 0.22f) *
@@ -707,7 +652,7 @@ namespace GenesisEngine.Systems
                 ["shelter"] = lone,
                 ["comfort"] = lone * 0.50f,
                 ["storage"] = full,
-
+                ["warmth"] = coldSeason + (1f - health) * 0.3f,
                 ["defense"] =
                     fear *
                     (atWar ? 0.80f : 0.25f) *
@@ -897,7 +842,7 @@ namespace GenesisEngine.Systems
                 return;
 
             string root = Root(mat, matId);
-            string name = root + "-" + EffectTables.AxisMethodWord(axis);
+            string name = root + "-" + EffectTables.AxisMethodWordFor(axis, mat);
 
             if (KnowledgeSystem.All.Any(k => k.Kind == "method" && k.Name == name))
                 return;

@@ -279,10 +279,10 @@ namespace GenesisEngine.Systems
         }
 
         public static void LeaderDecideDiplomacy(
-            CivilizationSnapshot civ,
-            Agent leader,
-            List<CivilizationSnapshot> allCivs,
-            Random rng)
+    CivilizationSnapshot civ,
+    Agent leader,
+    List<CivilizationSnapshot> allCivs,
+    Random rng)
         {
             if (civ == null || leader == null || allCivs == null || rng == null)
                 return;
@@ -304,6 +304,20 @@ namespace GenesisEngine.Systems
 
                 if (state == DiplomaticRelation.War)
                 {
+                    // v3: победитель с подавляющим перевесом вассализирует слабого
+                    if (myStr > theirStr * 2.0f && rng.NextDouble() < 0.10f)
+                    {
+                        SetState(civ.Id, other.Id, DiplomaticRelation.Vassalage);
+                        ShiftRelation(civ.Id, other.Id, +20f);
+                        Losses[civ.Id] = 0;
+                        Losses[other.Id] = 0;
+
+                        FileLogger.Log(
+                            $"[TICK {Simulation.Instance.TotalTicks}] {civ.Name} VASSALIZES {other.Name}",
+                            FileLogger.LogLevel.War);
+                        continue;
+                    }
+
                     float peaceChance =
                         0.10f +
                         wear * 0.80f +
@@ -321,6 +335,22 @@ namespace GenesisEngine.Systems
                         FileLogger.Log(
                             $"[TICK {Simulation.Instance.TotalTicks}] {civ.Name} (leader) makes PEACE with {other.Name}",
                             FileLogger.LogLevel.Info);
+                    }
+                }
+                else if (state == DiplomaticRelation.Vassalage)
+                {
+                    // v3: вассал платит дань знанием; со временем может освободиться
+                    other.InnovationPoints = Math.Max(0f, other.InnovationPoints - 1f);
+                    civ.InnovationPoints = Math.Min(1000f, civ.InnovationPoints + 1f);
+
+                    if (theirStr > myStr * 1.3f && rng.NextDouble() < 0.05f)
+                    {
+                        SetState(civ.Id, other.Id, DiplomaticRelation.Neutral);
+                        ShiftRelation(civ.Id, other.Id, -30f);
+
+                        FileLogger.Log(
+                            $"[TICK {Simulation.Instance.TotalTicks}] {other.Name} BREAKS FREE from {civ.Name}",
+                            FileLogger.LogLevel.War);
                     }
                 }
                 else
@@ -343,8 +373,7 @@ namespace GenesisEngine.Systems
                     {
                         warChance = 0.20f;
                     }
-                    // Война за расширение: агрессивный лидер с подавляющим перевесом
-                    // может атаковать даже без накопленной вражды
+
                     if (!exhausted &&
                         leader.Genome.Aggression > 0.75f &&
                         myStr > theirStr * 1.5f &&

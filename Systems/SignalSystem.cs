@@ -148,10 +148,13 @@ namespace GenesisEngine.Systems
 
                     float dist = listener.Position.Distance(s.Origin);
                     if (dist > listener.EffectiveHearing) continue;
-
                     float clarity =
                         (1f - dist / Math.Max(1f, listener.EffectiveHearing)) *
                         s.CurrentStrength(currentTick);
+
+                    // ❄️ Метель глушит звуки
+                    if (DisasterSystem.IsAffectedByBlizzard(listener))
+                        clarity *= 0.3f;
 
                     if (clarity > 0.05f)
                         heard.Add((s, clarity, dist));

@@ -22,23 +22,28 @@ namespace GenesisEngine.Systems.Analytics
         private static Thread _thread;
         private static volatile bool _running;
 
-        private static int _prevBorn, _prevHunger, _prevPredator, _prevCombat, _prevNatural;
+        private static int _prevBorn, _prevHunger, _prevPredator, _prevCombat, _prevNatural, _prevPlague, _prevCold;
 
         private static readonly Dictionary<string, string> Headers = new()
         {
             ["extended_data"] = "RunId,Tick,Population,LiteracyRate,AvgKnowersPerKnowledge,Reads100,Teachings100," +
                 "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
-                "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices," +
-                "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive",
+               "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
+                "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity",
+
             ["civ_snapshots"] = "RunId,Tick,CivId,CivName,Population,Era,LexiconSize,GrammarRules,Phonemes,Graphemes," +
-                "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore",
+                "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore," +
+                "Infected,HerdImmunity,AvgAggression",
+
             ["events"] = "RunId,Tick,EventType,CivId,Data",
             ["cognitive_data"] = "RunId,Tick,Key,Count,Avg",
             ["diplomacy_data"] = "RunId,Tick,Relation,Pairs,WarsActive,AvgWarPressure,AvgPeaceStability",
             ["materials_data"] = "RunId,Tick,BaseMaterials,Composites,Breakthroughs,Analogs,GlobalComputation,AutomataComputation",
             ["culture_data"] = "RunId,Tick,Artifacts,SacredArtifacts,Texts,SacredTexts,TextsWithKnowledge,KnownSymbols,AvgSanctity",
-            ["demography_data"] = "RunId,Tick,Births100,DeathsHunger100,DeathsPredator100,DeathsCombat100,DeathsNatural100," +
+
+            ["demography_data"] = "RunId,Tick,Births100,DeathsHunger100,DeathsPredator100,DeathsCombat100,DeathsNatural100,DeathsPlague100,DeathsCold100," +
                 "AvgAge,AvgGeneration,Males,Females,Farmers,Builders",
+
             ["signals_data"] = "RunId,Tick,Alarm,Food,Come,Danger,Trade,Help,Bond,Mourn,Celebrate",
             ["technology_data"] = "RunId,Tick,Axis,AvgCap",
             ["performance_data"] = "RunId,Tick,TickMs,AgentsMs,CreaturesMs,CivMs,EventsProcessed"
@@ -100,7 +105,6 @@ namespace GenesisEngine.Systems.Analytics
                 var civs = Simulation.activeCivs;
                 int pop = Math.Max(1, agents.Count);
 
-                // ---------- Один проход по миру ----------
                 var scan = ScanWorld(world);
 
                 // ---------- extended_data ----------
@@ -125,13 +129,15 @@ namespace GenesisEngine.Systems.Analytics
                 float avgSelfAw = agents.Count > 0 ? agents.Average(a => a.Genome.SelfAwareness) : 0f;
                 float avgLogic = agents.Count > 0 ? agents.Average(a => a.Logic) : 0f;
                 int warsActive = civs != null ? civs.Count(c => DiplomacySystem.IsAtWar(c.Id)) : 0;
+                float herdImmunity = EpidemicSystem.GetHerdImmunity(agents);
+                int infectedCount = agents.Count(a => a.Infected);
 
                 Enq("extended_data",
                     $"{_runId},{tick},{agents.Count},{literacyRate:F4},{avgKnowers:F2},{reads},{teachings}," +
                     $"{(scan.InstCount > 0 ? scan.InstSum / scan.InstCount : 0f):F3},{lexicon},{grammar},{phonemes},{graphemes},{invariants}," +
                     $"{scan.Total},{scan.Farms},{scan.Houses},{scan.Libraries},{scan.Temples},{scan.Markets}," +
-                    $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic}," +
-                    $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive}");
+                    $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," + 
+                    $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3}");
 
                 // ---------- demography_data ----------
                 int births = Math.Max(0, sim.TotalBorn - _prevBorn);
@@ -139,9 +145,14 @@ namespace GenesisEngine.Systems.Analytics
                 int dPredator = Math.Max(0, sim.TotalDiedPredator - _prevPredator);
                 int dCombat = Math.Max(0, sim.TotalDiedCombat - _prevCombat);
                 int dNatural = Math.Max(0, sim.TotalDiedNatural - _prevNatural);
+                int dPlague = Math.Max(0, sim.TotalDiedPlague - _prevPlague);
+                int dCold = Math.Max(0, sim.TotalDiedCold - _prevCold);
+
                 _prevBorn = sim.TotalBorn; _prevHunger = sim.TotalDiedHunger;
                 _prevPredator = sim.TotalDiedPredator; _prevCombat = sim.TotalDiedCombat;
                 _prevNatural = sim.TotalDiedNatural;
+                _prevPlague = sim.TotalDiedPlague;
+                _prevCold = sim.TotalDiedCold;
 
                 float avgAge = agents.Count > 0 ? (float)agents.Average(a => a.Age) : 0f;
                 float avgGen = agents.Count > 0 ? (float)agents.Average(a => a.Generation) : 0f;
@@ -150,7 +161,7 @@ namespace GenesisEngine.Systems.Analytics
                 int builders = agents.Count(a => a.Role == AgentRole.Builder);
 
                 Enq("demography_data",
-                    $"{_runId},{tick},{births},{dHunger},{dPredator},{dCombat},{dNatural}," +
+                    $"{_runId},{tick},{births},{dHunger},{dPredator},{dCombat},{dNatural},{dPlague},{dCold}," +
                     $"{avgAge:F0},{avgGen:F2},{males},{agents.Count - males},{farmers},{builders}");
 
                 // ---------- signals_data ----------
@@ -227,11 +238,18 @@ namespace GenesisEngine.Systems.Analytics
                     foreach (var c in civs)
                     {
                         string name = (c.Name ?? "").Replace("\"", "'");
+
+                        // Считаем метрики эпидемии и агрессии конкретно для этой цивилизации
+                        int civInfected = c.Members.Count(a => a.Infected);
+                        float civHerd = c.Members.Count > 0 ? (float)c.Members.Count(a => a.Genome.ImmuneStrength > 0.8f) / c.Members.Count : 0f;
+                        float civAggr = c.Members.Count > 0 ? c.Members.Average(a => a.Genome.Aggression) : 0f;
+
                         Enq("civ_snapshots",
                             $"{_runId},{tick},{c.Id},\"{name}\",{c.Population},{EraLabel(c.AvgToolHardness)}," +
                             $"{LanguageSystem.StableWordCount(c.Id)},{GrammarSystem.RuleCount(c.Id)}," +
                             $"{PhonemeSystem.PhonemeCount(c.Id)},{GraphemeSystem.GraphemeCount(c.Id)}," +
-                            $"{c.AvgToolHardness:F3},{c.TotalDevelopment:F2},{c.EmergentStructuresCount},{c.TotalScore:F0}");
+                            $"{c.AvgToolHardness:F3},{c.TotalDevelopment:F2},{c.EmergentStructuresCount},{c.TotalScore:F0}," +
+                            $"{civInfected},{civHerd:F3},{civAggr:F3}");
                     }
                 }
             }
@@ -239,7 +257,7 @@ namespace GenesisEngine.Systems.Analytics
         }
 
         // ============================================================
-        // Поток событий (выывается из ObserverCoordinator)
+        // Поток событий (вызывается из ObserverCoordinator)
         // ============================================================
         public static void LogEvent(int tick, string eventType, string civId, string data)
         {
@@ -251,7 +269,7 @@ namespace GenesisEngine.Systems.Analytics
         // ============================================================
         private sealed class WorldScan
         {
-            public int Total, Farms, Houses, Libraries, Temples, Markets, Barracks, Mines, Bridges, Warehouses, Logic;
+            public int Total, Farms, Houses, Libraries, Temples, Markets, Barracks, Mines, Bridges, Warehouses, Logic, Hospices;
             public float InstSum; public int InstCount;
             public float SanctSum; public int SanctCount;
         }
@@ -278,6 +296,7 @@ namespace GenesisEngine.Systems.Analytics
                             case BuildingType.MineShaft: s.Mines++; break;
                             case BuildingType.Bridge: s.Bridges++; break;
                             case BuildingType.Warehouse: s.Warehouses++; break;
+                            case BuildingType.Hospice: s.Hospices++; break;   // НОВОЕ
                         }
                     }
                     foreach (var a in t.Artifacts)

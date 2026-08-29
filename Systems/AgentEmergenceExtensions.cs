@@ -19,35 +19,31 @@ namespace GenesisEngine.Systems
             float loneliness = a.Loneliness / 100f;
 
             if (a.Body.Hunger > 80f && rng.NextDouble() < 0.03f + a.Genome.Extraversion * 0.05f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Food, hunger, 8f);
-            }
 
             if (a.Body.Health < 35f && rng.NextDouble() < 0.02f + a.Genome.Neuroticism * 0.04f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Help, 0.8f, 8f);
-            }
 
             if (a.Fear > 60f && rng.NextDouble() < 0.08f + a.Genome.Neuroticism * 0.08f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Alarm, fear, 10f);
-            }
 
             if (a.Loneliness > 70f && rng.NextDouble() < 0.02f + a.Genome.BondingDrive * 0.04f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Bond, loneliness, 12f);
-            }
-            // НОВОЕ: атакованный хищником кричит "опасность" — соседи разбегаются
+
             if (a.LastAction == "Predated" && rng.NextDouble() < 0.5f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Danger, 0.9f, 10f);
-            }
+
             if (a.Body.Inventory.Count > 1 &&
                 a.Genome.Extraversion > 0.55f &&
                 rng.NextDouble() < 0.015f + a.Genome.Openness * 0.02f)
-            {
                 SignalSystem.EmitSignal(a, SignalType.Trade, 0.5f, 8f);
-            }
+
+            // v3: праздник — сытый агент в урожайный сезон празднует
+            var season = SeasonSystem.GetCurrentSeason(Simulation.Instance.TotalTicks);
+            if (a.Body.Hunger < 20f &&
+                (season == SeasonSystem.Season.Summer || season == SeasonSystem.Season.Autumn) &&
+                rng.NextDouble() < 0.02f + a.Genome.Extraversion * 0.02f)
+                SignalSystem.EmitSignal(a, SignalType.Celebrate, 0.7f, 10f);
         }
 
         public static bool HandleSignals(Agent a, Random rng)
@@ -304,6 +300,8 @@ namespace GenesisEngine.Systems
                 return false;
 
             float chance = 0.05f + a.Genome.Conscientiousness * 0.08f;
+            float seasonMod = SeasonSystem.GetBuildingModifier(Simulation.Instance.CurrentSeason);
+            chance *= seasonMod;
             if (a.Body.Hunger > 50f) chance += 0.24f;
             if (rng.NextDouble() > chance) return false;
 

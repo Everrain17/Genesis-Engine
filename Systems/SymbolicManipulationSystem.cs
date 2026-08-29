@@ -38,20 +38,18 @@ namespace GenesisEngine.Systems
         public static bool TryManipulateSymbols(Agent agent, Tile tile, Random rng)
         {
             if (agent == null || tile == null || rng == null) return false;
-
-            if (tile.InstitutionAxis != "knowledge" || tile.InstitutionLevel < 2f) return false;
-            if (agent.Logic < 0.45f || agent.Genome.SelfAwareness < 0.5f) return false;  // было 0.55
+            if (tile.InstitutionAxis != "knowledge" || tile.InstitutionLevel < 1.2f) return false;   // v3: было 2f
+            if (agent.Logic < 0.45f || agent.Genome.SelfAwareness < 0.4f) return false;             // v3: было 0.55/0.5
 
             string civId = agent.CivilizationId ?? "wild";
             var graphemes = GraphemeSystem.GetGraphemes(civId);
-            if (graphemes.Count < 3) return false;
+            if (graphemes.Count < 2) return false;   // v3: было 3
 
-            float chance = 0.01f + agent.Logic * 0.02f + tile.InstitutionLevel * 0.005f;
+            float chance = 0.02f + agent.Logic * 0.04f + tile.InstitutionLevel * 0.01f;  // v3: шанс выше
             if (rng.NextDouble() > chance) return false;
 
             string[] contexts = { "quantity.food", "quantity.stone", "quantity.agents" };
             string context = contexts[rng.Next(contexts.Length)];
-
             int val1 = rng.Next(1, 4);
             int val2 = rng.Next(1, 3);
             int result = val1 + val2;
@@ -70,6 +68,7 @@ namespace GenesisEngine.Systems
             }
 
             var inputs = new List<string> { sym1, sym2 }.OrderBy(x => x).ToList();
+
             var existing = combinations.FirstOrDefault(c =>
                 c.InputGraphemeIds.SequenceEqual(inputs) &&
                 c.OutputGraphemeId == symRes &&
@@ -93,7 +92,7 @@ namespace GenesisEngine.Systems
                 });
             }
 
-            return true; // ИСПРАВЛЕНО: успешное выполнение
+            return true;
         }
 
         private static string GetOrCreateConceptSymbol(string civId, string concept, List<GraphemeSystem.Grapheme> graphemes, Random rng)

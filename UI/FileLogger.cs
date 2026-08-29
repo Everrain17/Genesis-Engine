@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading;
+using GenesisEngine.Systems;
 
 namespace GenesisEngine.UI
 {
@@ -138,7 +139,7 @@ namespace GenesisEngine.UI
 
         public static void LogTick(Simulation sim, int tick)
         {
-            if (tick % 100 != 0)
+            if (tick % 100 != 0) // Или % 500, зависит от того, как часто вызывается
                 return;
 
             try
@@ -153,13 +154,23 @@ namespace GenesisEngine.UI
                     sb.AppendLine($"  Civilizations: {civs.Count}");
                     foreach (var c in civs.OrderByDescending(c => c.TotalScore).Take(5))
                     {
-                        sb.AppendLine(
-                            $"    {c.Name}: {c.Population} pop, Dev: {c.TotalDevelopment:F1}, Score: {c.TotalScore:F0}");
+                        sb.AppendLine($"    {c.Name}: {c.Population} pop, Dev: {c.TotalDevelopment:F1}, Score: {c.TotalScore:F0}");
                     }
                 }
-                sb.AppendLine();
 
-                // Строка сформирована в главном потоке, в очередь — только готовый текст
+                // === Эпидемия ===
+                int infected = sim.Agents.Count(a => a.Infected);
+                float herd = EpidemicSystem.GetHerdImmunity(sim.Agents);
+                if (infected > 0)
+                {
+                    sb.AppendLine($"  Epidemic: {infected} infected, herd immunity {herd:P0}");
+                }
+
+                // === Сезон ===
+                var season = SeasonSystem.GetCurrentSeason(tick);
+                sb.AppendLine($"  Season: {SeasonSystem.GetSeasonName(season)} (tick {tick % SeasonSystem.TicksPerYear}/{SeasonSystem.TicksPerYear})");
+
+                sb.AppendLine();
                 _logQueue.Enqueue(sb.ToString());
             }
             catch { }

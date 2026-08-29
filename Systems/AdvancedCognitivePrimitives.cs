@@ -329,34 +329,18 @@ namespace GenesisEngine.Systems
                 places = new List<PlaceMemory>();
                 _placeMemories[agent.Id] = places;
             }
-
             places.RemoveAll(p => tick - p.LastSeenTick > 2500);
 
             float homeDistance = agent.Position.Distance(agent.HomePosition);
-
             CognitionSystem.Record("spatial.home_distance", homeDistance);
+            if (homeDistance > 25f) CognitionSystem.Record("spatial.far", 1f);
 
-            if (homeDistance > 25f)
-                CognitionSystem.Record("spatial.far", 1f);
-
-            if (tile.TotalFood > 50f)
-                RememberPlace(places, new Vector2(tile.X, tile.Y), "food", tick, 1f);
-
-            if (tile.InstitutionLevel > 1f ||
-                tile.Building == BuildingType.Library ||
-                tile.Building == BuildingType.Temple)
-            {
-                RememberPlace(places, new Vector2(tile.X, tile.Y), "knowledge", tick, 1f);
-            }
-
-            if (tile.Building == BuildingType.House)
-                RememberPlace(places, new Vector2(tile.X, tile.Y), "shelter", tick, 0.8f);
-
-            if (tile.SanctityLevel > 20f)
-                RememberPlace(places, new Vector2(tile.X, tile.Y), "sacred", tick, 0.7f);
+            if (tile.TotalFood > 50f) RememberPlace(places, new Vector2(tile.X, tile.Y), "food", tick, 1f);
+            if (tile.InstitutionLevel > 1f || tile.IsLibrary || tile.IsTemple) RememberPlace(places, new Vector2(tile.X, tile.Y), "knowledge", tick, 1f);
+            if (tile.IsHouse) RememberPlace(places, new Vector2(tile.X, tile.Y), "shelter", tick, 0.8f);
+            if (tile.SanctityLevel > 20f) RememberPlace(places, new Vector2(tile.X, tile.Y), "sacred", tick, 0.7f);
 
             TrimPlaces(places);
-
             CognitionSystem.Record("spatial.places", places.Count);
         }
 

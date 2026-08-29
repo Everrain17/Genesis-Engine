@@ -30,6 +30,32 @@ namespace GenesisEngine.Systems
                 }
             }
 
+            // v3: копирование текста — писец несёт знание домой
+            if (tile.Texts.Count > 0 &&
+                a.Genome.Conscientiousness > 0.5f &&
+                a.Logic > 0.35f &&
+                rng.NextDouble() < 0.02f + a.Logic * 0.02f)
+            {
+                var src = tile.Texts[rng.Next(tile.Texts.Count)];
+
+                if (src.KnowledgeIds.Count > 0)
+                {
+                    var homeTile = Simulation.Instance.World[(int)a.HomePosition.X, (int)a.HomePosition.Y];
+
+                    if (homeTile != null &&
+                        homeTile.Texts.Count < 8 &&
+                        !homeTile.Texts.Contains(src))
+                    {
+                        var copy = CultureSystem.CopyText(a, homeTile, src);
+                        if (copy != null)
+                        {
+                            a.LastAction = "CopyText";
+                            return true;
+                        }
+                    }
+                }
+            }
+
             // Запись знания
             if (tile.Texts.Count < 8 && a.Genome.SelfAwareness > 0.45f)
             {
@@ -49,7 +75,6 @@ namespace GenesisEngine.Systems
                     if (knowledge != null)
                     {
                         var text = KnowledgeSystem.WriteKnowledge(a, tile, knowledge);
-
                         if (text != null)
                         {
                             a.LastAction = "Write";
@@ -59,7 +84,6 @@ namespace GenesisEngine.Systems
                 }
             }
 
-
             // Сборка логического устройства
             if (LogicSystem.TryAssembleLogicDevice(a, tile, rng))
             {
@@ -67,15 +91,13 @@ namespace GenesisEngine.Systems
                 return true;
             }
 
-            // === НОВОЕ: Попытка создать графему для устойчивой фонемы ===
+            // Графемы
             if (tile.InstitutionAxis == "knowledge" && tile.InstitutionLevel >= 1.5f)
             {
                 var phonemes = PhonemeSystem.GetPhonemes(a.CivilizationId);
                 if (phonemes.Count > 0)
                 {
-                    // Берем самую устойчивую (часто используемую) фонему
                     var bestPhoneme = phonemes.OrderByDescending(p => p.Occurrences).First();
-
                     if (GraphemeSystem.TryCreateGrapheme(a, bestPhoneme, tile, rng))
                     {
                         a.LastAction = "DrawGrapheme";
@@ -84,8 +106,8 @@ namespace GenesisEngine.Systems
                 }
             }
 
-            // === НОВОЕ (ПАКЕТ 10): Символическая манипуляция и поиск инвариантов ===
-            if (tile.InstitutionAxis == "knowledge" && tile.InstitutionLevel >= 2f && a.Logic > 0.55f)
+            // v3: ОСЛАБЛЕННАЯ прото-математика (пороги снижены)
+            if (tile.InstitutionAxis == "knowledge" && tile.InstitutionLevel >= 1.2f && a.Logic > 0.45f)
             {
                 if (SymbolicManipulationSystem.TryManipulateSymbols(a, tile, rng))
                 {
@@ -97,6 +119,6 @@ namespace GenesisEngine.Systems
             return false;
         }
 
-        
+
     }
 }

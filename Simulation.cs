@@ -15,11 +15,12 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v2-main";   // в ветке v1-paper поставить "v1-paper"
+        public const string CodeVersion = "v3-NaturalDisasters";   // в ветке v1-paper поставить "v1-paper"
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
         public int TotalTicks;
+        public SeasonSystem.Season CurrentSeason => SeasonSystem.GetCurrentSeason(TotalTicks);  // НОВОЕ
         public Random Rng;
 
         public bool SimulationEnded = false;
@@ -32,7 +33,8 @@ namespace GenesisEngine
         public int TotalDiedHunger;
         public int TotalDiedPredator;
         public int TotalDiedCombat;
-
+        public int TotalDiedCold;
+        public int TotalDiedPlague;  // === НОВОЕ ===
         public static List<CivilizationSnapshot> activeCivs = new();
         public List<string> EventLog = new();
         public List<Agent> BornAgents = new();
@@ -93,6 +95,7 @@ namespace GenesisEngine
             Stopwatch agentsSw = EnableProfiling ? Stopwatch.StartNew() : null;
 
             SpatialGrid.Update(Agents, TotalTicks);
+            DisasterSystem.Update(World, Agents, TotalTicks);
             SignalSystem.CleanupSignals();
 
             var dead = new HashSet<Agent>();
@@ -136,7 +139,12 @@ namespace GenesisEngine
 
             if (TotalTicks % 100 == 0)
                 RegenerateFood();
-
+            // === v3: эпидемии ===
+            if (TotalTicks % 100 == 0)
+            {
+                EpidemicSystem.TrySpark(this, Rng);
+                EpidemicSystem.CleanupOutbreaks(TotalTicks);
+            }
             // Принудительное обновление сетки после движения агентов
             SpatialGrid.ForceUpdate(Agents);
 
@@ -208,6 +216,10 @@ namespace GenesisEngine
                     TotalDiedNatural++;
                 else if (a.LastAction == "Combat")
                     TotalDiedCombat++;
+                else if (a.LastAction == "Plague")
+                    TotalDiedPlague++;  // === НОВОЕ ===
+                else if (a.LastAction == "Cold")
+                    TotalDiedCold++;  // НОВОЕ
                 else
                     TotalDiedHunger++;
 
@@ -364,23 +376,16 @@ namespace GenesisEngine
         private void RegenerateFood()
         {
             string foodId = MaterialDB.GetFoodMaterialId();
-
             foreach (var tile in World)
             {
-                if (!tile.IsPassable || tile.Fertility <= 0.05f)
-                    continue;
-
-                // === НОВОЕ: истощение почвы ===
-                float effectiveFertility = tile.Fertility * (1f - tile.Exhaustion);
-                tile.Exhaustion = Math.Min(0.9f, tile.Exhaustion + 0.002f);  // медленно истощается
-                tile.Exhaustion = Math.Max(0f, tile.Exhaustion - 0.001f);    // медленно восстанавливается
+                if (!tile.IsPassable || tile.Fertility <= 0.05f) continue;
 
                 float currentFood = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
-                float regeneration = effectiveFertility * 3f;  // ← было tile.Fertility
-                bool isFarm = tile.Building == BuildingType.Farm && tile.BuildingFunctional;
+                float regeneration = tile.Fertility * 3f;
+                bool isFarm = tile.BuildingFunctional && tile.IsFarm;   // v3: через функцию
 
                 if (isFarm)
-                    regeneration *= (1f + tile.BuildingQuality * 3f);
+                    regeneration *= (1f + tile.BuildingQuality * 4f);
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
@@ -392,7 +397,7 @@ namespace GenesisEngine
                     tile.GroundObjects.Add(new WorldObject
                     {
                         MaterialId = foodId,
-                        Quantity = 0.5f * tile.BuildingQuality,  // ← уменьшено
+                        Quantity = 8f * tile.BuildingQuality,
                         Position = new Vector2(tile.X, tile.Y)
                     });
                 }
@@ -401,14 +406,13 @@ namespace GenesisEngine
                     .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
                     .Sum(o => o.Quantity);
 
-                float target = effectiveFertility * 40f;  // ← было tile.Fertility
-                if (isFarm)
-                    target *= (1f + tile.BuildingQuality * 2f);
+                float target = tile.Fertility * 40f;
+                if (isFarm) target *= (1f + tile.BuildingQuality * 2f);
 
                 if (organicAmount < target)
                 {
-                    float add = Math.Min(2f, target - organicAmount);  // ← было 20f
-                    if (add > 0.1f)
+                    float add = Math.Min(20f, target - organicAmount);
+                    if (add > 1f)
                     {
                         tile.GroundObjects.Add(new WorldObject
                         {

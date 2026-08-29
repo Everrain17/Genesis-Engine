@@ -58,7 +58,6 @@ namespace GenesisEngine.Systems.Analytics
 
             if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double d))
             {
-                // НОВОЕ: NaN/Infinity ломают ClosedXML — пишем 0 вместо краша
                 if (double.IsNaN(d) || double.IsInfinity(d))
                 {
                     cell.Value = 0d;
@@ -78,7 +77,6 @@ namespace GenesisEngine.Systems.Analytics
             return name.Length > 31 ? name.Substring(0, 31) : name;
         }
 
-        // Парсер CSV с поддержкой кавычек ("Emergent Cluster 96d369e0", "")
         private static List<string> ParseCsvLine(string line)
         {
             var result = new List<string>();

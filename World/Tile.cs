@@ -14,19 +14,16 @@ namespace GenesisEngine.World
         public float Temperature;
         public bool HasRiver;
         public static Tile[,] World;
-
         public Dictionary<string, float> BuildingProfile = new();
         public string DominantAxis;
         public float Profile(string axis) => BuildingProfile.GetValueOrDefault(axis, 0);
         public float StorageCap => Profile("storage") * 50f;
 
-        // Ресурсы (оставляем для обратной совместимости с генерацией мира)
         public Dictionary<ResourceType, float> Resources = new();
         public float Fertility;
         public float SafetyBase;
-        public float Exhaustion; // 0..1 истощение почвы
+        public float Exhaustion;
 
-        // Развитие
         public float DevelopmentLevel;
         public float FortificationLevel;
         public float SanctityLevel;
@@ -36,31 +33,65 @@ namespace GenesisEngine.World
         public BuildingType Building = BuildingType.None;
         public string OwnerCivId;
 
-        // === НОВОЕ: состояние здания ===
-        public float Durability = 100f;     // 0..100; при 0 здание рушится
-        public float BuildingQuality = 1f;  // растёт от методов/работы агентов
+        public float Durability = 100f;
+        public float BuildingQuality = 1f;
         public float InstitutionLevel;
         public string InstitutionAxis;
         public int InstitutionLastActiveTick;
-        // === НОВОЕ: генеративный состав здания ===
-        public List<string> BuildingComposition = new();  // из каких материалов построено
-        public string BuildingName = "";                  // "woodstone-house" и т.п.
 
-        // === НОВОЕ: Эмерджентные объекты на земле ===
+        public List<string> BuildingComposition = new();
+        public string BuildingName = "";
+
         public List<WorldObject> GroundObjects = new();
-
-        // Содержимое
         public List<Artifact> Artifacts = new();
         public List<WrittenText> Texts = new();
 
-        // Вычисляемые
+        // ============================================================
+        // v3: ФУНКЦИЯ ЗДАНИЯ. Агенты строят только Structure,
+        // а смысл здания = DominantAxis. Старые enum-значения тоже
+        // маппятся на функцию (совместимость).
+        // ============================================================
+        public bool IsStructure => Building == BuildingType.Structure;
+
+        public string Function
+        {
+            get
+            {
+                if (Building == BuildingType.None) return null;
+                if (!string.IsNullOrEmpty(DominantAxis)) return DominantAxis;
+                return LegacyAxis(Building);
+            }
+        }
+
+        public bool HasFunction(string axis) => Function == axis;
+        public bool IsFarm => HasFunction("food");
+        public bool IsHouse => HasFunction("shelter");
+        public bool IsLibrary => HasFunction("knowledge");
+        public bool IsTemple => HasFunction("faith");
+        public bool IsMarket => HasFunction("trade");
+        public bool IsBarracks => HasFunction("defense");
+        public bool IsBridge => HasFunction("mobility");
+
+        private static string LegacyAxis(BuildingType b) => b switch
+        {
+            BuildingType.Farm => "food",
+            BuildingType.House => "shelter",
+            BuildingType.Library => "knowledge",
+            BuildingType.Temple => "faith",
+            BuildingType.Market => "trade",
+            BuildingType.Barracks => "defense",
+            BuildingType.Bridge => "mobility",
+            BuildingType.Warehouse => "storage",
+            _ => "shelter"
+        };
+
         public int MaxAgents
         {
             get
             {
-                if (Building == BuildingType.House)
+                if (IsHouse)
                 {
-                    int adjacentHouses = CountAdjacentBuildings(BuildingType.House);
+                    int adjacentHouses = CountAdjacentHouses();
                     int baseCap = adjacentHouses >= 3 ? 15 : 10;
                     return baseCap + (int)(Profile("shelter") * 10);
                 }
@@ -77,12 +108,11 @@ namespace GenesisEngine.World
         {
             get
             {
-                if (Building == BuildingType.Bridge) return true;
+                if (IsBridge) return true;
                 return Terrain != TerrainType.DeepWater && Terrain != TerrainType.ShallowWater && Terrain != TerrainType.IcePeak;
             }
         }
 
-        // Здание «работает», только пока живое
         public bool BuildingFunctional => Building != BuildingType.None && Durability > 0f;
 
         public int GetX() => X;
@@ -97,23 +127,21 @@ namespace GenesisEngine.World
                 || Building == BuildingType.Capitol;
         }
 
-        private int CalculateMaxAgents()
+        private int CountAdjacentHouses()
         {
-            int baseCapacity = 5;
-            if (Building == BuildingType.House)
-            {
-                baseCapacity = 10;
-                int adjacentHouses = CountAdjacentBuildings(BuildingType.House);
-                if (adjacentHouses >= 3) baseCapacity = 15;
-                baseCapacity += (int)(BuildingQuality - 1f) * 2;
-            }
-            else if (Building != BuildingType.None)
-            {
-                baseCapacity = 5;
-            }
-            if (DevelopmentLevel > 50) baseCapacity += 10;
-            else if (DevelopmentLevel > 10) baseCapacity += 5;
-            return baseCapacity;
+            if (World == null) return 0;
+            int count = 0;
+            for (int dx = -1; dx <= 1; dx++)
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    int nx = X + dx, ny = Y + dy;
+                    if (nx >= 0 && nx < World.GetLength(0) && ny >= 0 && ny < World.GetLength(1))
+                    {
+                        if (World[nx, ny].IsHouse) count++;
+                    }
+                }
+            return count;
         }
 
         public int CountAdjacentBuildings(BuildingType type)

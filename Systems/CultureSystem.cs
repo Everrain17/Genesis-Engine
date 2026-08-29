@@ -126,6 +126,29 @@ namespace GenesisEngine.Systems
 
             return text;
         }
+
+        // v3: копирование текста — знание путешествует географически
+        public static WrittenText CopyText(Agent copier, Tile tile, WrittenText src)
+        {
+            if (copier == null || tile == null || src == null) return null;
+
+            var copy = new WrittenText
+            {
+                AuthorId = copier.Id,
+                CreationTick = Simulation.Instance.TotalTicks,
+                Content = src.Content,
+                Readability = Math.Max(0.3f, src.Readability * 0.9f),
+                IsSacred = src.IsSacred,
+                KnowledgeIds = new List<string>(src.KnowledgeIds),
+                EncodedSymbols = new List<string>(src.EncodedSymbols)
+            };
+
+            src.Copies++;
+            tile.Texts.Add(copy);
+            AllTexts.Add(copy);
+            return copy;
+        }
+
         public static void OnDeath(Agent dead, List<Agent> nearbyAgents)
         {
             if (dead == null) return;
@@ -187,6 +210,7 @@ namespace GenesisEngine.Systems
             if (agentsHere == null) return;
 
             tile.SanctityLevel += agentsHere.Count(a => a.LastAction == "Mourn") * 0.1f;
+            tile.SanctityLevel += agentsHere.Count(a => a.LastAction == "Celebrate") * 0.05f; // v3: праздники освящают место
 
             foreach (var artifact in tile.Artifacts)
             {

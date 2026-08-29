@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace GenesisEngine.Entities
 {
@@ -11,6 +13,10 @@ namespace GenesisEngine.Entities
         public float Speed = 0.7f;
         public float Fertility = 0.5f;
         public float ImmuneStrength = 0.7f;
+
+        // НОВОЕ: Генетические устойчивости к конкретным типам патогенов (наследуются от предков)
+        public List<string> GeneticResistances = new();
+
         public float Openness = 0.5f;
         public float Conscientiousness = 0.5f;
         public float Extraversion = 0.5f;
@@ -45,7 +51,7 @@ namespace GenesisEngine.Entities
                 Extraversion = (float)rng.NextDouble(),
                 Agreeableness = (float)rng.NextDouble(),
                 Neuroticism = (float)rng.NextDouble(),
-                Aggression = 0.4f + (float)rng.NextDouble() * 0.6f,  // От 0.4 до 1.0 — все агрессивнее
+                Aggression = 0.4f + (float)rng.NextDouble() * 0.6f,
                 Courage = (float)rng.NextDouble(),
                 KinshipBias = (float)rng.NextDouble(),
                 OutgroupGenerosity = (float)rng.NextDouble() * 0.3f,
@@ -56,13 +62,18 @@ namespace GenesisEngine.Entities
                 SelfAwareness = 0.05f + (float)rng.NextDouble() * 0.80f,
                 MasculineBehavior = (float)rng.NextDouble(),
                 FeminineBehavior = (float)rng.NextDouble(),
-                Spirituality = (float)rng.NextDouble()
+                Spirituality = (float)rng.NextDouble(),
+                GeneticResistances = new List<string>() // Изначально чистый геном
             };
         }
 
         public AgentGenome Mutate(Random rng)
         {
             float M(float v, float r) => Math.Clamp(v + ((float)rng.NextDouble() - 0.5f) * r, 0, 1);
+
+            // Копируем генетические устойчивости. 
+            var mutatedResistances = new List<string>(GeneticResistances);
+
             return new AgentGenome
             {
                 BaseVision = Math.Clamp(BaseVision + ((float)rng.NextDouble() - 0.5f), 2, 12),
@@ -88,9 +99,11 @@ namespace GenesisEngine.Entities
                 SelfAwareness = Math.Clamp(SelfAwareness + ((float)rng.NextDouble() - 0.5f) * 0.20f, 0, 1),
                 MasculineBehavior = M(MasculineBehavior, 0.2f),
                 FeminineBehavior = M(FeminineBehavior, 0.2f),
-                Spirituality = M(Spirituality, 0.2f)
+                Spirituality = M(Spirituality, 0.2f),
+                GeneticResistances = mutatedResistances
             };
         }
+
         public static AgentGenome Combine(AgentGenome a, AgentGenome b, Random rng)
         {
             float Avg01(float x, float y, float noise = 0.08f)
@@ -107,6 +120,12 @@ namespace GenesisEngine.Entities
                 return Math.Clamp(v, min, max);
             }
 
+            // ДЕТЕРМИНИЗМ: Объединяем списки устойчивостей от обоих родителей и сортируем
+            var mergedResistances = a.GeneticResistances
+                .Union(b.GeneticResistances)
+                .OrderBy(x => x)
+                .ToList();
+
             return new AgentGenome
             {
                 BaseVision = AvgRange(a.BaseVision, b.BaseVision, 2f, 12f, 1f),
@@ -116,13 +135,11 @@ namespace GenesisEngine.Entities
                 Speed = AvgRange(a.Speed, b.Speed, 0.2f, 1.5f, 0.1f),
                 Fertility = Avg01(a.Fertility, b.Fertility, 0.1f),
                 ImmuneStrength = Avg01(a.ImmuneStrength, b.ImmuneStrength, 0.1f),
-
                 Openness = Avg01(a.Openness, b.Openness),
                 Conscientiousness = Avg01(a.Conscientiousness, b.Conscientiousness),
                 Extraversion = Avg01(a.Extraversion, b.Extraversion),
                 Agreeableness = Avg01(a.Agreeableness, b.Agreeableness),
                 Neuroticism = Avg01(a.Neuroticism, b.Neuroticism),
-
                 Aggression = Avg01(a.Aggression, b.Aggression, 0.1f),
                 Courage = Avg01(a.Courage, b.Courage),
                 KinshipBias = Avg01(a.KinshipBias, b.KinshipBias),
@@ -134,7 +151,8 @@ namespace GenesisEngine.Entities
                 SelfAwareness = Avg01(a.SelfAwareness, b.SelfAwareness, 0.15f),
                 MasculineBehavior = Avg01(a.MasculineBehavior, b.MasculineBehavior),
                 FeminineBehavior = Avg01(a.FeminineBehavior, b.FeminineBehavior),
-                Spirituality = Avg01(a.Spirituality, b.Spirituality)
+                Spirituality = Avg01(a.Spirituality, b.Spirituality),
+                GeneticResistances = mergedResistances // Передаём детям
             };
         }
     }

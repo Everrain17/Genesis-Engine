@@ -41,6 +41,8 @@ namespace GenesisEngine.Systems.Biology
 
         public void Metabolize(float deltaTime)
         {
+            float hungerMod = SeasonSystem.GetHungerModifier(Simulation.Instance.CurrentSeason);
+
             Hunger = Math.Min(100, Hunger + (0.03f * deltaTime)); // Голод растёт со временем
             if (Hunger >= 100) Health -= 0.1f;
             Energy = Math.Max(0, Energy - (0.01f * deltaTime));

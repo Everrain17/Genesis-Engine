@@ -24,6 +24,7 @@ namespace GenesisEngine.Systems
             ["comfort"] = new() { ["Flexibility"] = 8, ["Organic"] = 5, ["Rarity"] = 2 },
             ["healing"] = new() { ["Organic"] = 9, ["Logic"] = 4, ["Rarity"] = 2 },
             ["mobility"] = new() { ["Flexibility"] = 9, ["Buoyancy"] = 5, ["Hardness"] = 2 },
+            ["warmth"] = new() { ["HeatOutput"] = 9, ["Organic"] = 6, ["Durability"] = 3 },
         };
 
         public static float GetProp(ResourceSpec s, string p) => p switch
@@ -52,7 +53,7 @@ namespace GenesisEngine.Systems
         public static BuildingType AxisToBuilding(string ax) => ax switch
         {
             "food" or "growth" => BuildingType.Farm,
-            "shelter" or "comfort" => BuildingType.House,
+            "shelter" or "comfort" or "warmth" => BuildingType.House,
             "storage" => BuildingType.Warehouse,
             "defense" or "war_siege" => BuildingType.Barracks,
             "mining" => BuildingType.MineShaft,
@@ -82,6 +83,7 @@ namespace GenesisEngine.Systems
             "comfort" => "hearth",
             "healing" => "salve",
             "mobility" => "cart",
+            "warmth" => "cloak",
             _ => "tool"
         };
         public static string AxisBuildingWord(string ax) => ax switch
@@ -100,6 +102,7 @@ namespace GenesisEngine.Systems
             "comfort" => "lodge",
             "healing" => "hospice",
             "mobility" => "bridge",
+            "warmth" => "hearth",
             _ => "hall"
         };
         public static string AxisMethodWord(string ax) => ax switch
@@ -120,8 +123,16 @@ namespace GenesisEngine.Systems
             "comfort" => "hearthcraft",
             "healing" => "herbalism",
             "mobility" => "pathfinding",
+            "warmth" => "tailoring",
             _ => "craft"
         };
+        // ШАГ 5: для healing — два разных метода в зависимости от материала
+        public static string AxisMethodWordFor(string axis, ResourceSpec s)
+        {
+            if (axis == "healing")
+                return s.Organic > 0.5f ? "herbalism" : "quarantine";
+            return AxisMethodWord(axis);
+        }
         public static char AxisSymbol(string ax) => ax switch
         {
             "food" => 'F',
@@ -139,6 +150,7 @@ namespace GenesisEngine.Systems
             "culture" => 'A',
             "comfort" => 'Z',
             "healing" => '+',
+            "warmth" => 'C',
             "mobility" => '#',
             _ => ' '
         };

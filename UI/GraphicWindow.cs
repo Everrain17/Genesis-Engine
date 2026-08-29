@@ -444,7 +444,7 @@ namespace GenesisEngine.UI
                 Raylib.DrawRectangleLines(x * tileSize, y * tileSize, tileSize, tileSize, Color.Red);
             }
 
-            if (tile.Building == BuildingType.Bridge)
+            if (tile.IsBridge)
                 Raylib.DrawRectangle(x * tileSize, y * tileSize + tileSize / 2 - 1, tileSize, 3, Color.Brown);
 
             if (tile.RoadLevel > 0.25f && tile.Building == BuildingType.None)

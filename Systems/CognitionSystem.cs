@@ -63,6 +63,9 @@ namespace GenesisEngine.Systems
                     if (MaterialDB.TryGet(e.Data, out var spec))
                         Record("material.depth", spec.Depth);
                     break;
+                case SimEventType.PlagueStarted:
+                    Analytics.ExtendedMetricsLogger.LogEvent(e.Tick, "PlagueStarted", e.Actor?.CivilizationId, e.Data ?? "");
+                    break;
             }
         }
         public static Dictionary<string, (int Count, float Avg)> SnapshotStats()
@@ -474,20 +477,11 @@ namespace GenesisEngine.Systems
         {
             int count = 0;
             var world = Simulation.Instance.World;
-
             foreach (var m in civ.Members)
             {
                 var tile = world[m.Position.X, m.Position.Y];
-
-                if (tile.Building == BuildingType.Library ||
-                    tile.Building == BuildingType.Temple ||
-                    tile.DominantAxis == "knowledge" ||
-                    tile.SanctityLevel > 20f)
-                {
-                    count++;
-                }
+                if (tile.IsLibrary || tile.IsTemple || tile.DominantAxis == "knowledge" || tile.SanctityLevel > 20f) count++;
             }
-
             return count;
         }
     }
