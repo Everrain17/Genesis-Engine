@@ -114,8 +114,12 @@ namespace GenesisEngine.Systems.Analytics
             int infected = agents.Count(a => a.Infected);
             float herd = EpidemicSystem.GetHerdImmunity(agents);
             string season = SeasonSystem.GetSeasonName(SeasonSystem.GetCurrentSeason(tick));
+
+            // ВАЖНО: используем ЗАПЯТУЮ как разделитель и CultureInfo.InvariantCulture для точки
             string line = $"{_runId},{tick},{agents.Count},{era},{counts.farms},{counts.settlements}," +
-                          $"{avgToolHardness:F2},{infected},{herd:F3},{season}";
+                          $"{avgToolHardness.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)}," +
+                          $"{infected},{herd.ToString("F3", System.Globalization.CultureInfo.InvariantCulture)}," +
+                          $"{season}";
 
             _csvQueue.Enqueue(line);
         }

@@ -12,15 +12,72 @@ namespace GenesisEngine.World
         public float Elevation;
         public float Moisture;
         public float Temperature;
+        public bool IsContested;  // Территория оспорима (здание разрушилось)
         public bool HasRiver;
         public static Tile[,] World;
         public Dictionary<string, float> BuildingProfile = new();
         public string DominantAxis;
         public float Profile(string axis) => BuildingProfile.GetValueOrDefault(axis, 0);
         public float StorageCap => Profile("storage") * 50f;
-
+        public Dictionary<string, int> CaptureProgress = new();  // Прогресс захвата по цивилизациям
         public Dictionary<ResourceType, float> Resources = new();
         public float Fertility;
+
+        // Добавляем в Tile.cs после поля Fertility:
+        // В классе Tile добавить новое свойство:
+
+        /// <summary>
+        /// Несущая способность тайла — сколько агентов может прокормить этот биом.
+        /// Зависит от плодородия, сезона и наличия построек.
+        /// </summary>
+        public float CarryingCapacity
+        {
+            get
+            {
+                float baseCapacity = Fertility * 50f; // Базовая ёмкость
+
+                // Сезонный модификатор
+                float seasonMod = SeasonSystem.GetFertilityModifier(
+                    SeasonSystem.GetCurrentSeason(Simulation.Instance?.TotalTicks ?? 0));
+                baseCapacity *= seasonMod;
+
+                // Фермы увеличивают ёмкость
+                if (BuildingFunctional && IsFarm)
+                {
+                    baseCapacity *= (1f + BuildingQuality * 2f);
+                }
+
+                return baseCapacity;
+            }
+        }
+
+        /// <summary>
+        /// Проверка перенаселения: сколько агентов сейчас на этом тайле и соседних.
+        /// </summary>
+        public float LocalPopulationDensity
+        {
+            get
+            {
+                if (World == null) return 0f;
+
+                int count = 0;
+                for (int dx = -2; dx <= 2; dx++)
+                {
+                    for (int dy = -2; dy <= 2; dy++)
+                    {
+                        int nx = X + dx, ny = Y + dy;
+                        if (nx >= 0 && nx < World.GetLength(0) &&
+                            ny >= 0 && ny < World.GetLength(1))
+                        {
+                            var nearby = SpatialGrid.GetNearby(
+                                new Vector2(nx, ny), 0);
+                            count += nearby.Count;
+                        }
+                    }
+                }
+                return count;
+            }
+        }
         public float SafetyBase;
         public float Exhaustion;
 
@@ -71,7 +128,7 @@ namespace GenesisEngine.World
         public bool IsMarket => HasFunction("trade");
         public bool IsBarracks => HasFunction("defense");
         public bool IsBridge => HasFunction("mobility");
-
+        public bool IsMine { get; set; }   // Шахта для добычи руды (теперь можно присваивать)
         private static string LegacyAxis(BuildingType b) => b switch
         {
             BuildingType.Farm => "food",
@@ -82,6 +139,7 @@ namespace GenesisEngine.World
             BuildingType.Barracks => "defense",
             BuildingType.Bridge => "mobility",
             BuildingType.Warehouse => "storage",
+            BuildingType.MineShaft => "mining",
             _ => "shelter"
         };
 

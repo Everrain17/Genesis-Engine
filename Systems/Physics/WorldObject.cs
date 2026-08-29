@@ -14,7 +14,7 @@ namespace GenesisEngine.Systems.Physics
         private static readonly Dictionary<string, float> EmptyProperties = new();
         private static readonly Dictionary<string, Dictionary<string, float>> PropertiesCache = new();
         private static readonly object CacheLock = new();
-
+        public bool IsOreDeposit = false;   // Рудная жила — добывается только через шахту
         // Важно: возвращаемый словарь теперь кэшируется.
         // Его нельзя изменять вручную.
         public Dictionary<string, float> GetProperties()

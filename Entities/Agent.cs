@@ -33,7 +33,9 @@ namespace GenesisEngine.Entities
         public Dictionary<string, int> PathogenSurvivals = new();  // Счётчик выживаний для генетической ассимиляции
         public string LastAction;
         public float Logic;
-
+        // В классе Agent, после поля LastAction:
+        public Dictionary<string, int> ActionHistory = new();  // Счётчик действий за последние N тиков
+        public int ActionHistoryTick = 0;  // Когда последний раз очищали историю
         public int EffectiveVision => (int)(Genome.BaseVision * 0.4f);
         public int EffectiveHearing => (int)(Genome.BaseHearing * 0.5f);
 
@@ -76,7 +78,6 @@ namespace GenesisEngine.Entities
             else
                 Despair = Math.Max(0f, Despair - 0.02f);
 
-            DetermineRole();
 
             if (Body.Health <= 0)
                 return;
@@ -129,6 +130,7 @@ namespace GenesisEngine.Entities
             }
 
             // 1. Размножение
+            // 1. Размножение
             if (Body.Hunger < 30 && Body.Energy > 50 &&
                 Age > 500 && Age < MaxAge * 0.7f &&
                 Genome.BondingDrive > 0.3f)
@@ -146,15 +148,51 @@ namespace GenesisEngine.Entities
 
                 if (partner != null)
                 {
-                    float chance = Genome.Fertility * Genome.BondingDrive * 0.02f;
+                    // === НОВОЕ: Несущая способность + Демографический переход ===
+
+                    // 1. Проверка перенаселения (несущая способность)
+                    float localPop = currentTile.LocalPopulationDensity;
+                    float capacity = currentTile.CarryingCapacity;
+                    float overcrowdingPenalty = 1f;
+
+                    if (localPop > capacity)
+                    {
+                        // Чем сильнее перенаселение, тем ниже рождаемость
+                        float overRatio = (localPop - capacity) / capacity;
+                        overcrowdingPenalty = Math.Max(0.1f, 1f - overRatio * 0.5f);
+                    }
+
+                    // 2. Демографический переход (развитие цивилизации)
+                    float civDevelopment = 1f;
+                    if (!string.IsNullOrEmpty(CivilizationId))
+                    {
+                        var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == CivilizationId);
+                        if (civ != null)
+                        {
+                            // Индекс развития: образование + инструменты + институты
+                            float educationIndex = civ.EducationLevel;
+                            float toolIndex = civ.AvgToolHardness;
+                            float institutionIndex = Math.Min(1f, civ.EmergentStructuresCount / 20f);
+
+                            civDevelopment = (educationIndex + toolIndex + institutionIndex) / 3f;
+                        }
+                    }
+
+                    // Чем развитее цивилизация, тем ниже рождаемость
+                    float demographicTransitionModifier = 1f / (1f + civDevelopment * 2f);
+
+                    // 3. Итоговый шанс размножения
+                    float baseChance = Genome.Fertility * Genome.BondingDrive * 0.02f;
+                    float chance = baseChance * overcrowdingPenalty * demographicTransitionModifier;
 
                     if (rng.NextDouble() < chance)
                     {
                         var mother = BiologicalSex == Sex.Female ? this : partner;
                         var father = BiologicalSex == Sex.Male ? this : partner;
-
                         string childCivId = "";
-                        if (!string.IsNullOrEmpty(mother.CivilizationId) && mother.CivilizationId == partner.CivilizationId)
+
+                        if (!string.IsNullOrEmpty(mother.CivilizationId) &&
+                            mother.CivilizationId == partner.CivilizationId)
                             childCivId = mother.CivilizationId;
                         else if (!string.IsNullOrEmpty(mother.CivilizationId))
                             childCivId = mother.CivilizationId;
@@ -171,12 +209,9 @@ namespace GenesisEngine.Entities
                         };
 
                         KnowledgeSystem.InheritFromParents(child, mother, father);
-
                         Simulation.Instance.BornAgents.Add(child);
                         Simulation.Instance.TotalBorn++;
-
                         ChildrenIds.Add(child.Id);
-
                         Body.Energy -= 25f;
                         partner.Body.Energy -= 25f;
                         Loneliness = 0;
@@ -218,6 +253,7 @@ namespace GenesisEngine.Entities
                     ScatterSeed(currentTile, rng);   // v3: поел — уронил семечко
 
                     LastAction = "Consume";
+                    RecordAction("Consume");
                     return;
                 }
             }
@@ -244,8 +280,10 @@ namespace GenesisEngine.Entities
                     if (ManipulationSystem.PickUp(this, groundFood, amount))
                     {
                         ObservationSystem.RecordPattern(this, "PickUp", groundFood, null, 10f);
-                        currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.01f); // v3: сбор истощает землю
+                        currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.01f);
+                        currentTile.Fertility = Math.Max(0.05f, currentTile.Fertility * 0.995f); // Деградация поч
                         LastAction = "PickUp";
+                        RecordAction("PickUp");
                         return;
                     }
                 }
@@ -262,6 +300,7 @@ namespace GenesisEngine.Entities
                     currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.02f); // v3
 
                     LastAction = "Forage";
+                    RecordAction("Forage");
                     return;
                 }
 
@@ -276,8 +315,64 @@ namespace GenesisEngine.Entities
                         if (ManipulationSystem.PickUp(this, randomObj, amount))
                         {
                             LastAction = "PickUp";
+                            RecordAction("PickUp");
                             return;
                         }
+                    }
+                }
+            }
+            // === НОВОЕ: Добыча из шахт ===
+            if (currentTile.IsMine && Body.Inventory.Count < 5)
+            {
+                WorldObject oreDeposit = null;
+
+                // Используем sDx, sDy, sNx, sNy, чтобы не конфликтовать с dx, dy, nx, ny для движения внизу метода
+                for (int sDx = -2; sDx <= 2; sDx++)
+                {
+                    for (int sDy = -2; sDy <= 2; sDy++)
+                    {
+                        int sNx = currentTile.X + sDx;
+                        int sNy = currentTile.Y + sDy;
+
+                        if (sNx >= 0 && sNx < world.GetLength(0) && sNy >= 0 && sNy < world.GetLength(1))
+                        {
+                            var neighbor = world[sNx, sNy];
+                            oreDeposit = neighbor.GroundObjects.FirstOrDefault(o => o.IsOreDeposit && o.Quantity > 0.1f);
+                            if (oreDeposit != null) break;
+                        }
+                    }
+                    if (oreDeposit != null) break;
+                }
+
+                if (oreDeposit != null)
+                {
+                    float capacity = Body.MaxCarryWeight - Body.CurrentCarryWeight;
+                    if (capacity > 0.5f)
+                    {
+                        float amount = Math.Min(2f, Math.Min(capacity, oreDeposit.Quantity));
+
+                        // Создаём новый объект с тем же материалом
+                        var minedOre = new WorldObject
+                        {
+                            MaterialId = oreDeposit.MaterialId,
+                            Quantity = amount,
+                            HolderId = Id,
+                            Position = null
+                        };
+
+                        oreDeposit.Quantity -= amount;
+
+                        // Если руда на тайле закончилась, удаляем её оттуда
+                        if (oreDeposit.Quantity <= 0f && oreDeposit.Position.HasValue)
+                        {
+                            var tile = world[(int)oreDeposit.Position.Value.X, (int)oreDeposit.Position.Value.Y];
+                            tile.GroundObjects.Remove(oreDeposit);
+                        }
+
+                        Body.Inventory.Add(minedOre);
+                        LastAction = "Mine";
+                        RecordAction("Mine");
+                        return; // Прерываем Update, агент успешно добыл ресурс в этом тике
                     }
                 }
             }
@@ -296,6 +391,7 @@ namespace GenesisEngine.Entities
                     {
                         ObservationSystem.RecordPattern(this, "Combine", obj1, obj2, 80f);
                         LastAction = "Combine";
+                        RecordAction("Combine");
                         return;
                     }
                 }
@@ -308,6 +404,7 @@ namespace GenesisEngine.Entities
                 if (TradeSystem.AutoTrade(this))
                 {
                     LastAction = "Trade";
+                    RecordAction("Trade");
                     return;
                 }
             }
@@ -388,7 +485,21 @@ namespace GenesisEngine.Entities
                 }
             }
         }
+        private void RecordAction(string action)
+        {
+            if (string.IsNullOrEmpty(action) || action == "Move") return;
 
+            // Очищаем историю каждые 500 тиков
+            if (Simulation.Instance.TotalTicks - ActionHistoryTick > 500)
+            {
+                ActionHistory.Clear();
+                ActionHistoryTick = Simulation.Instance.TotalTicks;
+            }
+
+            if (!ActionHistory.ContainsKey(action))
+                ActionHistory[action] = 0;
+            ActionHistory[action]++;
+        }
         // v3: поел — уронил семечко (побочный продукт, не «изобретение»)
         private void ScatterSeed(Tile tile, Random rng)
         {
@@ -405,22 +516,6 @@ namespace GenesisEngine.Entities
             }
         }
 
-        private void DetermineRole()
-        {
-            if (Body.Inventory.Any(o =>
-                MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Hardness > 0.6f))
-            {
-                Role = AgentRole.Builder;
-            }
-            else if (Body.Inventory.Any(o =>
-                MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.8f))
-            {
-                Role = AgentRole.Farmer;
-            }
-            else
-            {
-                Role = AgentRole.None;
-            }
-        }
+
     }
 }

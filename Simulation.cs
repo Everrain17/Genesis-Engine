@@ -15,7 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v3-NaturalDisasters";   // в ветке v1-paper поставить "v1-paper"
+        public const string CodeVersion = "v4-PoliticalDisasters";   // в ветке v1-paper поставить "v1-paper"
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
@@ -95,6 +95,7 @@ namespace GenesisEngine
             Stopwatch agentsSw = EnableProfiling ? Stopwatch.StartNew() : null;
 
             SpatialGrid.Update(Agents, TotalTicks);
+            TerritoryCaptureSystem.Update(Agents, World);  // <-- НОВОЕ: захват территорий
             DisasterSystem.Update(World, Agents, TotalTicks);
             SignalSystem.CleanupSignals();
 
@@ -144,9 +145,12 @@ namespace GenesisEngine
             {
                 EpidemicSystem.TrySpark(this, Rng);
                 EpidemicSystem.CleanupOutbreaks(TotalTicks);
+                RoleObserver.UpdateRoles(Agents);
+                
             }
             // Принудительное обновление сетки после движения агентов
             SpatialGrid.ForceUpdate(Agents);
+            TerritoryCaptureSystem.Update(Agents, World);
 
             Stopwatch creaturesSw = EnableProfiling ? Stopwatch.StartNew() : null;
 
@@ -294,7 +298,10 @@ namespace GenesisEngine
                         }
 
                         DiplomacySystem.LeaderDecideDiplomacy(civ, leader, activeCivs, Rng);
+                        // НОВОЕ: Проверяем условия для революций
+                       
                     }
+                    RevoltSystem.CheckRevoltConditions(activeCivs);
                 }
                 CultureSystem.UpdateWorld(World);
                 InstitutionSystem.UpdateWorld(World, Agents, TotalTicks);
@@ -376,22 +383,36 @@ namespace GenesisEngine
         private void RegenerateFood()
         {
             string foodId = MaterialDB.GetFoodMaterialId();
+
             foreach (var tile in World)
             {
                 if (!tile.IsPassable || tile.Fertility <= 0.05f) continue;
 
                 float currentFood = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
-                float regeneration = tile.Fertility * 3f;
-                bool isFarm = tile.BuildingFunctional && tile.IsFarm;   // v3: через функцию
 
+                // === НОВОЕ: Регенерация зависит от плодородия ===
+                // Чем ниже Fertility, тем медленнее восстанавливается еда
+                float baseRegeneration = tile.Fertility * 3f;
+
+                // Штраф за истощение (Exhaustion)
+                float exhaustionPenalty = 1f - tile.Exhaustion;
+                float regeneration = baseRegeneration * exhaustionPenalty;
+
+                bool isFarm = tile.BuildingFunctional && tile.IsFarm;
                 if (isFarm)
+                {
                     regeneration *= (1f + tile.BuildingQuality * 4f);
+                    // Фермы частично компенсируют истощение
+                    tile.Exhaustion = Math.Max(0f, tile.Exhaustion - 0.005f);
+                }
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
+                // Ограничение количества объектов на тайле
                 if (tile.GroundObjects.Count > 12)
                     tile.GroundObjects.RemoveRange(0, tile.GroundObjects.Count - 12);
 
+                // Фермы производят еду
                 if (isFarm)
                 {
                     tile.GroundObjects.Add(new WorldObject
@@ -402,16 +423,30 @@ namespace GenesisEngine
                     });
                 }
 
+                // === НОВОЕ: Экологическая обратная связь ===
+                // Если мало органики на тайле, плодородие медленно падает
                 float organicAmount = tile.GroundObjects
                     .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
                     .Sum(o => o.Quantity);
 
-                float target = tile.Fertility * 40f;
-                if (isFarm) target *= (1f + tile.BuildingQuality * 2f);
+                float targetOrganic = tile.Fertility * 40f;
+                if (isFarm) targetOrganic *= (1f + tile.BuildingQuality * 2f);
 
-                if (organicAmount < target)
+                // Если органики меньше 50% от цели — плодородие деградирует
+                if (organicAmount < targetOrganic * 0.5f)
                 {
-                    float add = Math.Min(20f, target - organicAmount);
+                    tile.Fertility = Math.Max(0.05f, tile.Fertility * 0.998f);
+                }
+                // Если органики достаточно — плодородие медленно восстанавливается
+                else if (organicAmount > targetOrganic * 0.8f && tile.Exhaustion < 0.3f)
+                {
+                    tile.Fertility = Math.Min(1f, tile.Fertility * 1.001f);
+                }
+
+                // Пополнение органики, если её мало
+                if (organicAmount < targetOrganic)
+                {
+                    float add = Math.Min(20f, targetOrganic - organicAmount);
                     if (add > 1f)
                     {
                         tile.GroundObjects.Add(new WorldObject

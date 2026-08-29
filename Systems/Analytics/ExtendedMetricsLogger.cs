@@ -27,9 +27,9 @@ namespace GenesisEngine.Systems.Analytics
         private static readonly Dictionary<string, string> Headers = new()
         {
             ["extended_data"] = "RunId,Tick,Population,LiteracyRate,AvgKnowersPerKnowledge,Reads100,Teachings100," +
-                "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
-               "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
-                "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity",
+    "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
+    "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
+    "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity,GiniCoefficient",
 
             ["civ_snapshots"] = "RunId,Tick,CivId,CivName,Population,Era,LexiconSize,GrammarRules,Phonemes,Graphemes," +
                 "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore," +
@@ -42,12 +42,13 @@ namespace GenesisEngine.Systems.Analytics
             ["culture_data"] = "RunId,Tick,Artifacts,SacredArtifacts,Texts,SacredTexts,TextsWithKnowledge,KnownSymbols,AvgSanctity",
 
             ["demography_data"] = "RunId,Tick,Births100,DeathsHunger100,DeathsPredator100,DeathsCombat100,DeathsNatural100,DeathsPlague100,DeathsCold100," +
-                "AvgAge,AvgGeneration,Males,Females,Farmers,Builders",
+    "AvgAge,AvgGeneration,Males,Females,Farmers,Builders,Traders,Soldiers,Scholars,Artisans",
 
             ["signals_data"] = "RunId,Tick,Alarm,Food,Come,Danger,Trade,Help,Bond,Mourn,Celebrate",
             ["technology_data"] = "RunId,Tick,Axis,AvgCap",
             ["performance_data"] = "RunId,Tick,TickMs,AgentsMs,CreaturesMs,CivMs,EventsProcessed"
         };
+
 
         public static void Initialize(string runId, string directory)
         {
@@ -132,12 +133,14 @@ namespace GenesisEngine.Systems.Analytics
                 float herdImmunity = EpidemicSystem.GetHerdImmunity(agents);
                 int infectedCount = agents.Count(a => a.Infected);
 
+                float gini = InequalityObserver.CalculateGiniCoefficient(agents);
+
                 Enq("extended_data",
                     $"{_runId},{tick},{agents.Count},{literacyRate:F4},{avgKnowers:F2},{reads},{teachings}," +
                     $"{(scan.InstCount > 0 ? scan.InstSum / scan.InstCount : 0f):F3},{lexicon},{grammar},{phonemes},{graphemes},{invariants}," +
                     $"{scan.Total},{scan.Farms},{scan.Houses},{scan.Libraries},{scan.Temples},{scan.Markets}," +
-                    $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," + 
-                    $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3}");
+                    $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," +
+                    $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3},{gini:F3}");
 
                 // ---------- demography_data ----------
                 int births = Math.Max(0, sim.TotalBorn - _prevBorn);
@@ -157,12 +160,18 @@ namespace GenesisEngine.Systems.Analytics
                 float avgAge = agents.Count > 0 ? (float)agents.Average(a => a.Age) : 0f;
                 float avgGen = agents.Count > 0 ? (float)agents.Average(a => a.Generation) : 0f;
                 int males = agents.Count(a => a.BiologicalSex == Sex.Male);
-                int farmers = agents.Count(a => a.Role == AgentRole.Farmer);
-                int builders = agents.Count(a => a.Role == AgentRole.Builder);
+                var roleCounts = RoleObserver.CountRoles(agents);
+                int farmers = roleCounts[AgentRole.Farmer];
+                int builders = roleCounts[AgentRole.Builder];
+                int traders = roleCounts[AgentRole.Trader];
+                int soldiers = roleCounts[AgentRole.Soldier];
+                int scholars = roleCounts[AgentRole.Scholar];
+                int artisans = roleCounts[AgentRole.Artisan];
 
                 Enq("demography_data",
                     $"{_runId},{tick},{births},{dHunger},{dPredator},{dCombat},{dNatural},{dPlague},{dCold}," +
-                    $"{avgAge:F0},{avgGen:F2},{males},{agents.Count - males},{farmers},{builders}");
+                    $"{avgAge:F0},{avgGen:F2},{males},{agents.Count - males}," +
+                    $"{farmers},{builders},{traders},{soldiers},{scholars},{artisans}");
 
                 // ---------- signals_data ----------
                 var sig = new Dictionary<SignalType, int>();
@@ -278,32 +287,63 @@ namespace GenesisEngine.Systems.Analytics
         {
             var s = new WorldScan();
             int w = world.GetLength(0), h = world.GetLength(1);
+
             for (int x = 0; x < w; x++)
+            {
                 for (int y = 0; y < h; y++)
                 {
                     var t = world[x, y];
+
+                    // Считаем ВСЕ здания (независимо от типа)
                     if (t.Building != BuildingType.None)
                     {
                         s.Total++;
-                        switch (t.Building)
-                        {
-                            case BuildingType.Farm: s.Farms++; break;
-                            case BuildingType.House: s.Houses++; break;
-                            case BuildingType.Library: s.Libraries++; break;
-                            case BuildingType.Temple: s.Temples++; break;
-                            case BuildingType.Market: s.Markets++; break;
-                            case BuildingType.Barracks: s.Barracks++; break;
-                            case BuildingType.MineShaft: s.Mines++; break;
-                            case BuildingType.Bridge: s.Bridges++; break;
-                            case BuildingType.Warehouse: s.Warehouses++; break;
-                            case BuildingType.Hospice: s.Hospices++; break;   // НОВОЕ
-                        }
+
+                        // === v3: ЭМЕРДЖЕНТНЫЙ ПОДСЧЁТ через DominantAxis и флаги ===
+
+                        // Шахты — специальное здание (флаг IsMine)
+                        if (t.IsMine)
+                            s.Mines++;
+                        // Фермы — ось "food" или "growth"
+                        else if (t.IsFarm)
+                            s.Farms++;
+                        // Дома — ось "shelter", "comfort" или "warmth"
+                        else if (t.IsHouse)
+                            s.Houses++;
+                        // Библиотеки — ось "knowledge"
+                        else if (t.IsLibrary)
+                            s.Libraries++;
+                        // Храмы — ось "faith"
+                        else if (t.IsTemple)
+                            s.Temples++;
+                        // Рынки — ось "trade"
+                        else if (t.IsMarket)
+                            s.Markets++;
+                        // Казармы — ось "defense"
+                        else if (t.IsBarracks)
+                            s.Barracks++;
+                        // Мосты — ось "mobility"
+                        else if (t.IsBridge)
+                            s.Bridges++;
+                        // Склады — ось "storage"
+                        else if (t.HasFunction("storage"))
+                            s.Warehouses++;
+                        // Хосписы — ось "healing"
+                        else if (t.HasFunction("healing"))
+                            s.Hospices++;
                     }
+
+                    // Логические устройства считаются отдельно (это артефакты, не здания)
                     foreach (var a in t.Artifacts)
-                        if (a.Name != null && a.Name.StartsWith("logic-node")) s.Logic++;
+                    {
+                        if (a.Name != null && a.Name.StartsWith("logic-node"))
+                            s.Logic++;
+                    }
+
                     if (t.InstitutionLevel > 0f) { s.InstSum += t.InstitutionLevel; s.InstCount++; }
                     if (t.SanctityLevel > 0f) { s.SanctSum += t.SanctityLevel; s.SanctCount++; }
                 }
+            }
             return s;
         }
 

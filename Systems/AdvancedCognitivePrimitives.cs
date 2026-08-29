@@ -497,7 +497,76 @@ namespace GenesisEngine.Systems
             agent.Position = new Vector2(x, y);
             return true;
         }
+        // ============================================================
+        // 6. СОЦИАЛЬНОЕ СРАВНЕНИЕ
+        // Агент сравнивает себя с другими и замечает неравенство
+        // ============================================================
+        private static void UpdateSocialComparison(Agent agent, Tile tile)
+        {
+            var nearby = SpatialGrid.GetNearby(agent.Position, 5);
+            if (nearby.Count < 3) return;
 
+            // Считаем своё "богатство"
+            float myWealth = CalculateWealth(agent);
+
+            // Сравниваем с другими
+            int richer = 0;
+            int poorer = 0;
+            float avgWealth = 0f;
+
+            foreach (var other in nearby)
+            {
+                if (other.Id == agent.Id) continue;
+                float otherWealth = CalculateWealth(other);
+                avgWealth += otherWealth;
+
+                if (otherWealth > myWealth * 1.5f) richer++;
+                if (otherWealth < myWealth * 0.5f) poorer++;
+            }
+
+            avgWealth /= Math.Max(1, nearby.Count);
+
+            // Записываем когнитивные метрики
+            if (richer > nearby.Count * 0.3f)
+            {
+                CognitionSystem.Record("social.richer_nearby", richer);
+                CognitionSystem.Record("social.inequality_perceived", 1f);
+            }
+
+            // Агенты с низкой самосознанностью не замечают неравенства
+            if (agent.Genome.SelfAwareness > 0.4f && richer > 2)
+            {
+                // НОВОЕ: Недовольство растёт
+                agent.Despair = Math.Min(100f, agent.Despair + 0.05f * richer);
+            }
+        }
+
+        private static float CalculateWealth(Agent agent)
+        {
+            float wealth = 0f;
+
+            // Инвентарь
+            foreach (var obj in agent.Body.Inventory)
+            {
+                if (MaterialDB.TryGet(obj.MaterialId, out var spec))
+                {
+                    wealth += obj.Quantity * (1f + spec.Rarity + spec.Hardness);
+                }
+            }
+
+            // Здоровье и энергия
+            wealth += agent.Body.Health / 10f;
+            wealth += agent.Body.Energy / 10f;
+
+            // Близость к институтам
+            var tile = Simulation.Instance.GetTile(agent.Position);
+            if (tile.BuildingFunctional)
+            {
+                wealth += tile.BuildingQuality * 2f;
+            }
+
+            return wealth;
+        }
         // ============================================================
         // ОЧИСТКА ПАМЯТИ ПРИ СМЕРТИ
         // ============================================================

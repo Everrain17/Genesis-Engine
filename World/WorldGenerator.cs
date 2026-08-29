@@ -14,7 +14,7 @@ namespace GenesisEngine.World
         private float[,] elevation;
         private float[,] moisture;
         private float[,] tempNoise;
-
+       
         public Tile[,] Generate(int w, int h, int seed)
         {
             width = w; height = h;
@@ -190,12 +190,21 @@ namespace GenesisEngine.World
 
                     foreach (var c in selected)
                     {
-                        tile.GroundObjects.Add(new WorldObject
+                        var obj = new WorldObject
                         {
                             MaterialId = c.mat.Id,
                             Quantity = c.qty,
                             Position = new Vector2(x, y)
-                        });
+                        };
+
+                        // === НОВОЕ: Рудные жилы (твёрдые материалы с высокой плотностью) ===
+                        // Помечаем как "рудные" для добычи через шахты
+                        if (c.mat.Hardness > 0.5f && c.mat.Conductivity > 0.3f)
+                        {
+                            obj.IsOreDeposit = true;
+                        }
+
+                        tile.GroundObjects.Add(obj);
                     }
 
                     // Гарантируем немного еды на плодородных тайлах
