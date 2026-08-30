@@ -124,12 +124,86 @@ namespace GenesisEngine.Systems
 
                 TryMathDiscovery(civ, avgLogic, scienceCapacity, rng);
                 TryTheoryDiscovery(civ, avgLogic, scienceCapacity, texts, rng);
-
+                TryQuarantineDiscovery(civ, avgLogic, scienceCapacity, rng);
                 // === НОВОЕ: Открытия из когнитивных примитивов ===
                 TryCognitivePrimitiveDiscovery(civ, avgLogic, scienceCapacity, rng);
             }
         }
+        private static void TryQuarantineDiscovery(
+    CivilizationSnapshot civ,
+    float avgLogic,
+    float scienceCapacity,
+    Random rng)
+        {
+            // Проверяем, есть ли статистика по болезням
+            var diseaseStats = CognitionSystem.SnapshotStats()
+                .Where(kv => kv.Key.StartsWith("disease."))
+                .ToDictionary(kv => kv.Key, kv => kv.Value);
 
+            if (diseaseStats.Count < 3) return;
+
+            // Ищем сильные корреляции
+            bool hasContactCorrelation = diseaseStats.TryGetValue("disease.contact_with_sick", out var contactStat)
+                && contactStat.Count > 10;
+            bool hasAvoidanceBehavior = diseaseStats.TryGetValue("disease.avoidance_behavior", out var avoidStat)
+                && avoidStat.Count > 5;
+
+            if (!hasContactCorrelation) return;
+
+            string discoveryKey = civ.Id + "|quarantine";
+            if (!MathDiscoveries.Add(discoveryKey)) return;
+
+            float chance = Math.Clamp(scienceCapacity / 40f, 0f, 0.5f) * Math.Clamp(avgLogic, 0f, 1f);
+            if (rng.NextDouble() > chance)
+            {
+                MathDiscoveries.Remove(discoveryKey);
+                return;
+            }
+
+            var scholars = civ.Members
+                .OrderByDescending(m => m.Genome.SelfAwareness)
+                .Take(3)
+                .ToList();
+
+            if (scholars.Count == 0)
+            {
+                MathDiscoveries.Remove(discoveryKey);
+                return;
+            }
+
+            var knowledge = new Knowledge
+            {
+                Kind = "method",
+                Branch = "healing",
+                Sub = "quarantine",
+                DominantAxis = "healing",
+                Concept = "disease.isolation",
+                Name = "quarantine-method",
+                Power = Math.Clamp(contactStat.Count / 50f, 0.1f, 1f),
+                Quality = avgLogic + 0.5f,
+                CreatedTick = Simulation.Instance.TotalTicks
+            };
+
+            foreach (var scholar in scholars)
+                knowledge.Knowers.Add(scholar.Id);
+
+            KnowledgeSystem.All.Add(knowledge);
+
+            civ.Discoveries.Add(new Discovery
+            {
+                Name = knowledge.Name,
+                Branch = "healing",
+                Capability = "quarantine",
+                Quality = knowledge.Quality,
+                Tick = Simulation.Instance.TotalTicks,
+                AuthorId = scholars[0].Id.ToString()
+            });
+
+            FileLogger.Log(
+                $"[TICK {Simulation.Instance.TotalTicks}] {civ.Name}: EMERGENT QUARANTINE DISCOVERY " +
+                $"(contact correlations: {contactStat.Count}, avoidance behaviors: {avoidStat.Count})",
+                FileLogger.LogLevel.Info);
+        }
         private static void TryCognitivePrimitiveDiscovery(
             CivilizationSnapshot civ,
             float avgLogic,
@@ -273,6 +347,74 @@ namespace GenesisEngine.Systems
                     FileLogger.LogLevel.Info);
 
                 break;
+            }
+            // 3. ЭКОЛОГИЧЕСКИЕ ОТКРЫТИЯ (Влияние среды на выживание)
+            var envCorrelations = CognitivePrimitives.GetStrongEnvCorrelations(minOccurrences: 15);
+            foreach (var corr in envCorrelations.Take(3))
+            {
+                string discoveryKey = civ.Id + "|env|" + corr.Condition + "|" + corr.Effect;
+                if (!MathDiscoveries.Add(discoveryKey)) continue;
+
+                float chance = Math.Clamp(scienceCapacity / 30f, 0f, 0.6f) *
+                               Math.Clamp(avgLogic, 0f, 1f) * corr.Confidence;
+
+                if (rng.NextDouble() > chance)
+                {
+                    MathDiscoveries.Remove(discoveryKey);
+                    continue;
+                }
+
+                var scholars = civ.Members
+                    .OrderByDescending(m => m.Genome.SelfAwareness)
+                    .Take(3)
+                    .ToList();
+
+                if (scholars.Count == 0)
+                {
+                    MathDiscoveries.Remove(discoveryKey);
+                    continue;
+                }
+
+                // Эмерджентное определение оси знания на основе эффекта
+                string axis = "knowledge";
+                if (corr.Effect.Contains("hunger_loss")) axis = "food";       // Поняли, где еда
+                else if (corr.Effect.Contains("health_loss")) axis = "healing"; // Поняли, где опасно
+                else if (corr.Condition.Contains("cold") || corr.Condition.Contains("hot")) axis = "shelter"; // Поняли, где строить дом
+
+                var knowledge = new Knowledge
+                {
+                    Kind = "method",
+                    Branch = "ecology",
+                    Sub = axis,
+                    DominantAxis = axis,
+                    Concept = $"env.{corr.Condition}.{corr.Effect}",
+                    Name = $"observation-env-{corr.Condition}-{corr.Effect}",
+                    Power = Math.Clamp(corr.Confidence, 0.1f, 1f),
+                    Quality = avgLogic + 0.5f,
+                    CreatedTick = Simulation.Instance.TotalTicks
+                };
+
+                foreach (var scholar in scholars)
+                    knowledge.Knowers.Add(scholar.Id);
+
+                KnowledgeSystem.All.Add(knowledge);
+
+                civ.Discoveries.Add(new Discovery
+                {
+                    Name = knowledge.Name,
+                    Branch = "ecology",
+                    Capability = axis,
+                    Quality = knowledge.Quality,
+                    Tick = Simulation.Instance.TotalTicks,
+                    AuthorId = scholars[0].Id.ToString()
+                });
+
+                FileLogger.Log(
+                    $"[TICK {Simulation.Instance.TotalTicks}] {civ.Name}: ECOLOGICAL DISCOVERY '{knowledge.Name}' " +
+                    $"(condition={corr.Condition} → effect={corr.Effect}, confidence={corr.Confidence:F2})",
+                    FileLogger.LogLevel.Info);
+
+                break; // Одно открытие за раз, чтобы не спамить
             }
         }
 

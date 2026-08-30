@@ -5,7 +5,7 @@ using GenesisEngine.Core;
 using GenesisEngine.Entities;
 using GenesisEngine.Systems.Physics;
 using GenesisEngine.World;
-
+using GenesisEngine.UI;
 namespace GenesisEngine.Systems
 {
     public static class AdvancedCognitivePrimitives
@@ -70,6 +70,7 @@ namespace GenesisEngine.Systems
 
             if ((tick + phase) % 20 == 0)
                 UpdateSpatial(agent, tile, tick);
+               
         }
 
         // ============================================================
@@ -577,4 +578,118 @@ namespace GenesisEngine.Systems
             CategoryMemory.Remove(agentId);
         }
     }
+
+        public static class EmergentDeductionSystem
+        {
+            /// <summary>
+            /// Агент пытается самостоятельно вывести свойства окружения на основе корреляций,
+            /// БЕЗ хардкода понятий "холод", "ветер" или "вирус".
+            /// </summary>
+            public static void Update(Agent agent, Tile tile, Random rng)
+            {
+                if (agent == null || tile == null) return;
+
+                int currentTick = Simulation.Instance.TotalTicks;
+
+                // Проверяем корреляции не каждый тик, а раз в 50 тиков для экономии
+                if (currentTick - agent.LastDeductionTick < 50) return;
+                agent.LastDeductionTick = currentTick;
+
+                // 1. Вычисляем дельту внутреннего состояния
+                float healthDelta = agent.Body.Health - agent.LastHealth;
+                float energyDelta = agent.Body.Energy - agent.LastEnergy;
+
+                // Обновляем последние значения
+                agent.LastHealth = agent.Body.Health;
+                agent.LastEnergy = agent.Body.Energy;
+
+                // Если изменений нет или они положительные (агент отдохнул/поел), дедукция не нужна
+                float totalNegativeImpact = Math.Abs(Math.Min(0f, healthDelta)) + Math.Abs(Math.Min(0f, energyDelta)) * 0.5f;
+                if (totalNegativeImpact < 0.1f) return;
+
+                // 2. Формируем "Сырой Хеш Окружения" (Raw Environmental Hash)
+                // Агент не знает названий, он видит только бинарные признаки
+                string rawEnvHash = GetRawEnvironmentalHash(tile, agent);
+
+                // 3. Записываем корреляцию: "Это окружение причинило мне X урона"
+                if (!agent.EnvironmentalCorrelations.ContainsKey(rawEnvHash))
+                {
+                    agent.EnvironmentalCorrelations[rawEnvHash] = 0f;
+                }
+                agent.EnvironmentalCorrelations[rawEnvHash] += totalNegativeImpact;
+
+                // 4. Эмерджентное открытие (Threshold)
+                // Если накопленный "урон" от этого хеша превысил порог, агент "понимает" свойство
+                float correlationScore = agent.EnvironmentalCorrelations[rawEnvHash];
+                if (correlationScore > 5.0f) // Порог "осознания опасности/свойства"
+                {
+                    // Агент эмерджентно классифицирует это окружение как "Вредное" или "Опасное"
+                    CognitionSystem.Record("deduction.environmental_hazard", correlationScore);
+
+                    // Если агент достаточно умён (SelfAwareness), он пытается предупредить других
+                    if (agent.Genome.SelfAwareness > 0.5f && rng.NextDouble() < 0.3f)
+                    {
+                        // Он излучает сигнал тревоги, привязанный к этому контексту
+                        // Другие агенты, услышав его, тоже начнут формировать эту корреляцию быстрее (социальное обучение)
+                        SignalSystem.EmitSignal(agent, SignalType.Danger, 0.8f, 12f, $"hazard_{rawEnvHash}");
+                    }
+
+                    // Сбрасываем счётчик, чтобы не спамить открытиями, но сохраняем знание
+                    agent.EnvironmentalCorrelations[rawEnvHash] = 0f;
+
+                    FileLogger.Log(
+                        $"[TICK {currentTick}] EMERGENT DEDUCTION: Agent {agent.Id} correlated env hash '{rawEnvHash}' " +
+                        $"with negative impact (Score: {correlationScore:F1}). Hazard recognized.",
+                        FileLogger.LogLevel.Info);
+                }
+
+                // Очистка старых корреляций для экономии памяти
+                if (agent.EnvironmentalCorrelations.Count > 20)
+                {
+                    var oldest = agent.EnvironmentalCorrelations.Keys.First();
+                    agent.EnvironmentalCorrelations.Remove(oldest);
+                }
+            }
+
+
+        /// <summary>
+        /// Создаёт "сырое" описание окружения без использования понятий движка.
+        /// Только бинарные признаки, которые агент может "ощутить".
+        /// </summary>
+        private static string GetRawEnvironmentalHash(Tile tile, Agent agent)
+        {
+            var parts = new List<string>();
+
+            // Визуальные/тактильные признаки
+            if (tile.Temperature < 0.3f) parts.Add("V_Cold");
+            else if (tile.Temperature > 0.7f) parts.Add("V_Hot");
+
+            if (tile.Moisture > 0.7f) parts.Add("V_Wet");
+            else if (tile.Moisture < 0.2f) parts.Add("V_Dry");
+
+            if (tile.WildnessLevel > 1.5f) parts.Add("V_Wild");
+
+            // 1. Биологические признаки: Больные агенты (берём из SpatialGrid, так как там только агенты)
+            var nearbyAgents = SpatialGrid.GetNearby(agent.Position, 2);
+            int sickNearby = nearbyAgents.Count(a => a.Infected || a.Body.Health < 50f);
+            if (sickNearby > 0)
+                parts.Add($"B_SickNearby({sickNearby})");
+
+            // 2. Биологические признаки: Хищники (ИСПРАВЛЕНО: ищем в глобальном списке существ)
+            int predatorsNearby = Simulation.Instance.Creatures.Count(c =>
+                c.Behavior == CreatureBehavior.Predator &&
+                c.Position.Distance(agent.Position) <= 2f); // 2f - тот же радиус, что и в GetNearby
+
+            if (predatorsNearby > 0)
+                parts.Add($"B_PredatorNearby({predatorsNearby})");
+
+            // Если признаков нет, возвращаем базовый хеш
+            if (parts.Count == 0) return "Env_Normal";
+
+            // Сортируем для детерминизма хеша (чтобы "V_Cold_V_Wet" и "V_Wet_V_Cold" были одним и тем же хешем)
+            parts.Sort();
+            return string.Join("_", parts);
+        }
+    }
+    
 }

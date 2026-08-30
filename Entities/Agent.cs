@@ -33,6 +33,13 @@ namespace GenesisEngine.Entities
         public Dictionary<string, int> PathogenSurvivals = new();  // Счётчик выживаний для генетической ассимиляции
         public string LastAction;
         public float Logic;
+        public Dictionary<string, float> EnvironmentalCorrelations = new(); // Хеш окружения -> накопленный "урон"
+        public float LastHealth = 100f;
+        public float LastHunger = 0f;
+        public float LastEnergy = 0f;
+        public float LastDeductionTick = 0f;
+        public int LastCorrelationTick = 0;
+        public int LastEnvObservationTick = 0;
         // В классе Agent, после поля LastAction:
         public Dictionary<string, int> ActionHistory = new();  // Счётчик действий за последние N тиков
         public int ActionHistoryTick = 0;  // Когда последний раз очищали историю
@@ -63,7 +70,14 @@ namespace GenesisEngine.Entities
                 LastAction = "Age";
             }
 
- 
+
+
+            var nearby = SpatialGrid.GetNearby(Position, 2);
+
+            if (nearby.Any(a => a.Id != Id && Memory.GetTrust(a.Id) > 0f))
+            {
+                Loneliness = Math.Max(0f, Loneliness - 1.5f);
+            }
 
             Body.Metabolize(1f);
 
@@ -84,22 +98,17 @@ namespace GenesisEngine.Entities
 
             var rng = RandomProvider.GetRandom();
             Tile currentTile = world[Position.X, Position.Y];
-            var season = Simulation.Instance.CurrentSeason;
-            if (season == SeasonSystem.Season.Winter)
+            // Эмерджентное наблюдение за влиянием среды на агента (раз в 50 тиков)
+            if (Simulation.Instance.TotalTicks - LastEnvObservationTick > 50)
             {
-                float clothingProtection = 0f;
-                if (Body.Inventory.Any(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f))
-                    clothingProtection += 0.3f;
+                float healthDelta = Body.Health - LastHealth;
+                float hungerDelta = Body.Hunger - LastHunger;
 
-                Tile winterTile = Simulation.Instance.World[(int)Position.X, (int)Position.Y];
-                if (winterTile.IsHouse || winterTile.IsTemple)
-                    clothingProtection += 0.5f;
+                CognitivePrimitives.ObserveEnvironment(this, currentTile, healthDelta, hungerDelta);
 
-                float coldDamage = SeasonSystem.GetColdDamage(season, clothingProtection);
-                Body.Health -= coldDamage;
-
-                if (Body.Health <= 0 && LastAction != "Age")
-                    LastAction = "Cold";
+                LastHealth = Body.Health;
+                LastHunger = Body.Hunger;
+                LastEnvObservationTick = Simulation.Instance.TotalTicks;
             }
             // === v3: эпидемии ===
             EpidemicSystem.Update(this, currentTile, rng);
@@ -108,7 +117,35 @@ namespace GenesisEngine.Entities
                 if (Infected) LastAction = "Plague";
                 return;
             }
+            // === НОВОЕ: Эмерджентное избегание болезней ===
+            if (Simulation.Instance.TotalTicks % 50 == 0)
+            {
+                // Если агент здоров и замечал корреляции с болезнями
+                if (!Infected && Genome.SelfAwareness > 0.5f)
+                {
+                    // Проверяем, есть ли больные рядом
+                    int sickNearby = nearby.Count(a => a != this && a.Infected);
 
+                    if (sickNearby > 0)
+                    {
+                        // Агент эмерджентно понимает опасность
+                        CognitionSystem.Record("disease.avoidance_behavior", 1f);
+
+                        // С шансом, зависящим от SelfAwareness, агент избегает больных
+                        float avoidanceChance = Genome.SelfAwareness * 0.3f;
+                        if (rng.NextDouble() < avoidanceChance)
+                        {
+                            // Двигаемся подальше от больных
+                            Vector2 awayFromSick = CalculateDirectionAwayFromSick(nearby);
+                            if (awayFromSick != Position)
+                            {
+                                Position = awayFromSick;
+                                LastAction = "AvoidSick";
+                            }
+                        }
+                    }
+                }
+            }
             CognitivePrimitives.UpdateCognitivePrimitives(this);
             AdvancedCognitivePrimitives.Update(this, currentTile, rng);
             HigherCognitivePrimitives.Update(this, currentTile, rng);
@@ -121,13 +158,6 @@ namespace GenesisEngine.Entities
 
             if (AgentEmergence.HandleSignals(this, rng))
                 return;
-
-            var nearby = SpatialGrid.GetNearby(Position, 2);
-
-            if (nearby.Any(a => a.Id != Id && Memory.GetTrust(a.Id) > 0f))
-            {
-                Loneliness = Math.Max(0f, Loneliness - 1.5f);
-            }
 
             // 1. Размножение
             // 1. Размножение
@@ -150,18 +180,6 @@ namespace GenesisEngine.Entities
                 {
                     // === НОВОЕ: Несущая способность + Демографический переход ===
 
-                    // 1. Проверка перенаселения (несущая способность)
-                    float localPop = currentTile.LocalPopulationDensity;
-                    float capacity = currentTile.CarryingCapacity;
-                    float overcrowdingPenalty = 1f;
-
-                    if (localPop > capacity)
-                    {
-                        // Чем сильнее перенаселение, тем ниже рождаемость
-                        float overRatio = (localPop - capacity) / capacity;
-                        overcrowdingPenalty = Math.Max(0.1f, 1f - overRatio * 0.5f);
-                    }
-
                     // 2. Демографический переход (развитие цивилизации)
                     float civDevelopment = 1f;
                     if (!string.IsNullOrEmpty(CivilizationId))
@@ -179,11 +197,11 @@ namespace GenesisEngine.Entities
                     }
 
                     // Чем развитее цивилизация, тем ниже рождаемость
-                    float demographicTransitionModifier = 1f / (1f + civDevelopment * 2f);
+
 
                     // 3. Итоговый шанс размножения
-                    float baseChance = Genome.Fertility * Genome.BondingDrive * 0.02f;
-                    float chance = baseChance * overcrowdingPenalty * demographicTransitionModifier;
+                    float chance = Genome.Fertility * Genome.BondingDrive * 0.02f;
+
 
                     if (rng.NextDouble() < chance)
                     {
@@ -484,6 +502,35 @@ namespace GenesisEngine.Entities
                     Position = new Vector2(nx, ny);
                 }
             }
+        }
+        private Vector2 CalculateDirectionAwayFromSick(List<Agent> nearby)
+        {
+            float avgX = 0f, avgY = 0f;
+            int sickCount = 0;
+
+            foreach (var a in nearby)
+            {
+                if (a != this && a.Infected)
+                {
+                    avgX += a.Position.X;
+                    avgY += a.Position.Y;
+                    sickCount++;
+                }
+            }
+
+            if (sickCount == 0) return Position;
+
+            avgX /= sickCount;
+            avgY /= sickCount;
+
+            // Двигаемся в противоположном направлении
+            int dx = Math.Sign(Position.X - avgX);
+            int dy = Math.Sign(Position.Y - avgY);
+
+            int newX = Math.Clamp(Position.X + dx, 0, Simulation.Instance.World.GetLength(0) - 1);
+            int newY = Math.Clamp(Position.Y + dy, 0, Simulation.Instance.World.GetLength(1) - 1);
+
+            return new Vector2(newX, newY);
         }
         private void RecordAction(string action)
         {

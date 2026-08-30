@@ -22,7 +22,7 @@ namespace GenesisEngine.World
         public Dictionary<string, int> CaptureProgress = new();  // Прогресс захвата по цивилизациям
         public Dictionary<ResourceType, float> Resources = new();
         public float Fertility;
-
+        public WeatherSystem.WeatherState Weather;
         // Добавляем в Tile.cs после поля Fertility:
         // В классе Tile добавить новое свойство:
 

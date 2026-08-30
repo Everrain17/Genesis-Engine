@@ -15,7 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v4-PoliticalDisasters";   // в ветке v1-paper поставить "v1-paper"
+        public const string CodeVersion = "v5 - DWAaAP"; //v5 - DeadliestWeather-and-AdvancePrimitives
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
@@ -35,6 +35,7 @@ namespace GenesisEngine
         public int TotalDiedCombat;
         public int TotalDiedCold;
         public int TotalDiedPlague;  // === НОВОЕ ===
+        public int TotalDiedDisaster;  // === НОВОЕ: смерти от катастроф ===
         public static List<CivilizationSnapshot> activeCivs = new();
         public List<string> EventLog = new();
         public List<Agent> BornAgents = new();
@@ -96,7 +97,7 @@ namespace GenesisEngine
 
             SpatialGrid.Update(Agents, TotalTicks);
             TerritoryCaptureSystem.Update(Agents, World);  // <-- НОВОЕ: захват территорий
-            DisasterSystem.Update(World, Agents, TotalTicks);
+            WeatherSystem.Update(World, Agents, TotalTicks);
             SignalSystem.CleanupSignals();
 
             var dead = new HashSet<Agent>();
@@ -701,6 +702,11 @@ namespace GenesisEngine
                 SimulationLogger.Close();
                 ExtendedMetricsLogger.Flush();
                 ExtendedMetricsLogger.Close();
+
+                string pathogenCsvPath = Path.Combine(runDir, "pathogen_data.csv");
+                PathogenTracker.ExportFinalData(pathogenCsvPath, runId);
+                Console.WriteLine($"[PathogenTracker] Exported {PathogenTracker.GetAllRecords().Count} pathogen strains to {pathogenCsvPath}");
+
                 Console.WriteLine("Building Excel report...");
                 ExcelExporter.ExportFolder(runDir);
                 FileLogger.Flush();

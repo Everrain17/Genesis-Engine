@@ -28,27 +28,18 @@ namespace GenesisEngine.Systems.Analytics
         public static void Initialize(string runId, string directory = "data")
         {
             _runId = runId ?? DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
-
-            if (!Directory.Exists(directory))
-                Directory.CreateDirectory(directory);
+            if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
 
             _filePath = Path.Combine(directory, "emergence_data.csv");
             _diagnosticsPath = Path.Combine(directory, "headless_status.csv");
 
-            if (!File.Exists(_filePath))
-            {
-                File.WriteAllText(_filePath, "RunId,Tick,Population,Era,Farms,Settlements,AvgToolHardness,Infected,HerdImmunity,Season");
-            }
-
-            if (!File.Exists(_diagnosticsPath))
-            {
-                File.WriteAllText(_diagnosticsPath, "RunId,Tick,Population,Civilizations,KnowledgeCount,TextCount,SignalCount,TickMs\n");
-            }
+            // === ИСПРАВЛЕНИЕ: Всегда принудительно создаем чистый файл с правильным заголовком ===
+            File.WriteAllText(_filePath, "RunId,Tick,Population,Era,Farms,Settlements,AvgToolHardness,Infected,HerdImmunity,Season\n");
+            File.WriteAllText(_diagnosticsPath, "RunId,Tick,Population,Civilizations,KnowledgeCount,TextCount,SignalCount,TickMs\n");
 
             _writer = new StreamWriter(_filePath, true) { AutoFlush = false };
             _diagWriter = new StreamWriter(_diagnosticsPath, true) { AutoFlush = false };
 
-            // === НОВОЕ: запускаем фоновый поток ===
             _running = true;
             _csvThread = new Thread(CsvWorker)
             {

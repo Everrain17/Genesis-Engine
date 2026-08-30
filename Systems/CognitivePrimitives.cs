@@ -226,6 +226,68 @@ namespace GenesisEngine.Systems
                 .OrderByDescending(p => p.Regularity)
                 .ToList();
         }
+        // ============================================================
+        // 6. ЭКОЛОГИЧЕСКАЯ ДЕДУКЦИЯ
+        // Агент замечает, как свойства тайла влияют на его здоровье/голод
+        // ============================================================
+        public class EnvironmentalCorrelation
+        {
+            public string Condition;   // Например: "cold_wet", "hot_dry", "fertile"
+            public string Effect;      // Например: "health_loss", "hunger_loss" (сытость)
+            public int Occurrences;
+            public float Confidence;
+            public int LastTick;
+        }
+
+        private static readonly SortedDictionary<string, EnvironmentalCorrelation> EnvCorrelations = new();
+
+        public static void ObserveEnvironment(Agent agent, Tile tile, float healthDelta, float hungerDelta)
+        {
+            if (agent == null || tile == null) return;
+
+            // Формируем "сырое" описание состояния тайла (без реальных названий, только пороги)
+            string envState = "";
+            if (tile.Temperature < 0.25f) envState += "cold_";
+            else if (tile.Temperature > 0.75f) envState += "hot_";
+
+            if (tile.Moisture > 0.7f) envState += "wet_";
+            else if (tile.Moisture < 0.3f) envState += "dry_";
+
+            if (tile.Fertility > 0.6f) envState += "fertile_";
+            if (tile.InstitutionLevel > 1f) envState += "structured_";
+
+            // Формируем эффект
+            string effect = "";
+            if (healthDelta < -0.5f) effect += "health_loss";
+            if (hungerDelta > 1.0f) effect += "hunger_gain";
+            if (hungerDelta < -1.0f) effect += "hunger_loss"; // Утоление голода
+
+            if (!string.IsNullOrEmpty(envState) && !string.IsNullOrEmpty(effect))
+            {
+                RecordEnvCorrelation(envState.Trim('_'), effect);
+            }
+        }
+
+        private static void RecordEnvCorrelation(string condition, string effect)
+        {
+            string key = $"{condition}|{effect}";
+            if (!EnvCorrelations.TryGetValue(key, out var corr))
+            {
+                corr = new EnvironmentalCorrelation { Condition = condition, Effect = effect, Occurrences = 0 };
+                EnvCorrelations[key] = corr;
+            }
+            corr.Occurrences++;
+            corr.LastTick = Simulation.Instance.TotalTicks;
+            corr.Confidence = Math.Clamp(corr.Occurrences / 15f, 0f, 1f);
+        }
+
+        public static List<EnvironmentalCorrelation> GetStrongEnvCorrelations(int minOccurrences = 10)
+        {
+            return EnvCorrelations.Values
+                .Where(c => c.Occurrences >= minOccurrences)
+                .OrderByDescending(c => c.Confidence)
+                .ToList();
+        }
 
         // ============================================================
         // 5. АНАЛОГИЯ (Analogy)

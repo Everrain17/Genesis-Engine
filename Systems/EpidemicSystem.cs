@@ -12,7 +12,7 @@ namespace GenesisEngine.Systems
     public class Pathogen
     {
         public string Id;
-        public string Type;        // тип болезни, привязан к биому
+        public string Type;        // тип болезни, привязан к биому (базовый)
         public string Name;
         public float Virulence;
         public float Contagiousness;
@@ -26,13 +26,13 @@ namespace GenesisEngine.Systems
 
     public static class EpidemicSystem
     {
-        private static readonly Dictionary<string, Pathogen> Pathogens = new();
+        private static readonly Dictionary<string, Pathogen> ActivePathogens = new();
         private static int _counter;
 
         public static float SparkChance = 0.02f;
 
         public static Pathogen GetPathogen(string id) =>
-            string.IsNullOrEmpty(id) ? null : Pathogens.GetValueOrDefault(id);
+            string.IsNullOrEmpty(id) ? null : ActivePathogens.GetValueOrDefault(id);
 
         // ============================================================
         // СПАВН
@@ -40,14 +40,22 @@ namespace GenesisEngine.Systems
         public static void TrySpark(Simulation sim, Random rng)
         {
             if (sim.Agents.Count < 50) return;
-            if (rng.NextDouble() >= SparkChance) return;
+   
 
+            // === НОВОЕ: Шанс эпидемии зависит от плотности населения ===
+            // Чем больше агентов, тем выше риск (от 2% при 0 агентов до 10% при 300+ агентах)
+            float densityFactor = Math.Clamp((float)sim.Agents.Count / 300f, 0f, 1f);
+            float actualSparkChance = SparkChance + (densityFactor * 0.04f);
+            if (rng.NextDouble() >= actualSparkChance) return;
             var victim = sim.Agents[rng.Next(sim.Agents.Count)];
             if (victim.Infected) return;
 
             var terrain = sim.World[victim.Position.X, victim.Position.Y].Terrain;
             var p = GeneratePathogen(terrain, rng);
-            Pathogens[p.Id] = p;
+
+            ActivePathogens[p.Id] = p;
+            PathogenTracker.RegisterPathogen(p.Id, p.Name, null, p.Virulence, p.Contagiousness, sim.TotalTicks);
+
             Infect(victim, p);
 
             FileLogger.Log(
@@ -101,10 +109,31 @@ namespace GenesisEngine.Systems
         public static void Infect(Agent agent, Pathogen p)
         {
             agent.Infected = true;
-            agent.InfectedWith = p.Type;
+            agent.InfectedWith = p.Id; // ВАЖНО: используем Id (например, "P_000"), а не Type
             agent.InfectionTimer = 0f;
             p.TotalInfected++;
+
+            // === ИСПРАВЛЕНИЕ: Сообщаем трекеру о заражении ===
+            PathogenTracker.RecordInfection(p.Id);
+
+            // Эмерджентное осознание заражения
+            var nearby = SpatialGrid.GetNearby(agent.Position, 2);
+            int sickNearby = nearby.Count(a => a != agent && a.Infected);
+            if (sickNearby > 0) CognitionSystem.Record("disease.contact_with_sick", sickNearby);
+
+            var tile = Simulation.Instance.GetTile(agent.Position);
+            if (tile != null)
+            {
+                CognitionSystem.Record($"disease.terrain.{tile.Terrain}", 1f);
+                if (tile.Fertility < 0.3f) CognitionSystem.Record("disease.low_fertility_terrain", 1f);
+                if (tile.SanctityLevel > 10f) CognitionSystem.Record("disease.sacred_terrain", 1f);
+            }
+            if (!string.IsNullOrEmpty(agent.LastAction))
+            {
+                CognitionSystem.Record($"disease.last_action.{agent.LastAction}", 1f);
+            }
         }
+
 
         // ============================================================
         // ОСНОВНОЙ UPDATE
@@ -125,12 +154,10 @@ namespace GenesisEngine.Systems
                 float medicine = MedicineLevel(agent, tile);
                 float specificImmunity = agent.PathogenImmunity.GetValueOrDefault(p.Type, 0f);
 
-                // НОВОЕ: Проверяем генетическую устойчивость (наследственную)
                 bool hasGeneticResistance = agent.Genome.GeneticResistances.Contains(p.Type);
                 float geneticFactor = hasGeneticResistance ? 0.5f : 0f;
 
-                // Урон (Генетика снижает урон на 50%)
-                float damage = p.Drain * biomeMul
+                float damage = p.Virulence * 0.1f * biomeMul
                     * (1f - medicine * 0.6f)
                     * (1f - specificImmunity * 0.5f)
                     * (1f - geneticFactor * 0.5f);
@@ -144,14 +171,12 @@ namespace GenesisEngine.Systems
                 if (agent.Body.Health <= 0f)
                 {
                     agent.LastAction = "Plague";
-                    p.TotalDied++;
+                    PathogenTracker.RecordDeath(p.Id);
                     return;
                 }
 
-                // Выздоровление или смерть
                 if (agent.InfectionTimer >= p.Duration)
                 {
-                    // Летальность
                     float lethal = p.Virulence
                         * (1f - agent.Genome.ImmuneStrength * 0.4f)
                         * (1f - medicine * 0.5f)
@@ -162,34 +187,29 @@ namespace GenesisEngine.Systems
                     {
                         agent.Body.Health = 0f;
                         agent.LastAction = "Plague";
-                        p.TotalDied++;
+                        PathogenTracker.RecordDeath(p.Id);
                     }
                     else
                     {
                         agent.Infected = false;
                         agent.InfectedWith = null;
+                        PathogenTracker.RecordRecovery(p.Id);
 
-                        // 1. Приобретённый иммунитет (антитела): +0.3, кап 0.9
                         float current = agent.PathogenImmunity.GetValueOrDefault(p.Type, 0f);
                         agent.PathogenImmunity[p.Type] = Math.Min(0.9f, current + 0.3f);
 
-                        // 2. ГЕНЕТИЧЕСКАЯ АССИМИЛЯЦИЯ (Эффект Болдуина)
                         int survivals = agent.PathogenSurvivals.GetValueOrDefault(p.Type, 0) + 1;
                         agent.PathogenSurvivals[p.Type] = survivals;
 
                         if (!hasGeneticResistance)
                         {
-                            // Шанс записи в геном: 1 - (0.5 ^ survivals)
-                            // 1-е выживание: 50%, 2-е: 75%, 3-е: 87.5%
                             float assimilationChance = 1f - MathF.Pow(0.5f, survivals);
-
                             if (rng.NextDouble() < assimilationChance)
                             {
                                 agent.Genome.GeneticResistances.Add(p.Type);
-                                agent.Genome.GeneticResistances.Sort(); // Детерминизм!
-
+                                agent.Genome.GeneticResistances.Sort();
                                 FileLogger.Log(
-                                    $"[TICK {Simulation.Instance.TotalTicks}] GENETIC ASSIMILATION: Agent {agent.Id} lineage adapted to '{p.Type}' (survivals: {survivals})",
+                                    $"[TICK {Simulation.Instance.TotalTicks}] GENETIC ASSIMILATION: Agent {agent.Id} lineage adapted to '{p.Type}'",
                                     FileLogger.LogLevel.Info);
                             }
                         }
@@ -201,51 +221,71 @@ namespace GenesisEngine.Systems
                 return;
             }
 
-            if (!agent.Infected)
+            // ---------- ЗДОРОВ ----------
+            var nearby = SpatialGrid.GetNearby(agent.Position, 2);
+            Agent carrier = null;
+            foreach (var other in nearby)
             {
-                // ---------- ЗДОРОВ ----------
-                var nearby = SpatialGrid.GetNearby(agent.Position, 2);
-                Agent carrier = null;
-                foreach (var other in nearby)
-                {
-                    if (other != agent && other.Infected) { carrier = other; break; }
-                }
-                if (carrier == null) return;
-
-                var p = GetPathogen(carrier.InfectedWith);
-                if (p == null) return;
-
-                float biomeMul = (tile != null && tile.Terrain == p.Affinity) ? 1.5f : 0.8f;
-                float medicine = MedicineLevel(agent, tile);
-
-                float immuneStrength = agent.Genome.ImmuneStrength;
-                float specificImmunity = agent.PathogenImmunity.GetValueOrDefault(p.Type, 0f);
-
-                bool hasGeneticResistance = agent.Genome.GeneticResistances.Contains(p.Type);
-                float geneticFactor = hasGeneticResistance ? 0.5f : 0f;
-
-                // Шанс заражения (Генетика сильно снижает шанс подхватить вирус)
-                float chance = p.Contagiousness * biomeMul
-                    * (1f - medicine * 0.5f)
-                    * (1f - immuneStrength * 0.5f)
-                    * (1f - specificImmunity * 0.7f)
-                    * (1f - geneticFactor);
-
-                if (rng.NextDouble() < chance)
-                    Infect(agent, p);
+                if (other != agent && other.Infected) { carrier = other; break; }
             }
-            
+            if (carrier == null) return;
+
+            var pCarrier = GetPathogen(carrier.InfectedWith);
+            if (pCarrier == null) return;
+
+            float biomeMulHealth = (tile != null && tile.Terrain == pCarrier.Affinity) ? 1.5f : 0.8f;
+            float medicineHealth = MedicineLevel(agent, tile);
+            float immuneStrength = agent.Genome.ImmuneStrength;
+            float specificImmunityHealth = agent.PathogenImmunity.GetValueOrDefault(pCarrier.Type, 0f);
+            bool hasGeneticResistanceHealth = agent.Genome.GeneticResistances.Contains(pCarrier.Type);
+            float geneticFactorHealth = hasGeneticResistanceHealth ? 0.5f : 0f;
+
+            float chance = pCarrier.Contagiousness * biomeMulHealth
+                * (1f - medicineHealth * 0.5f)
+                * (1f - immuneStrength * 0.5f)
+                * (1f - specificImmunityHealth * 0.7f)
+                * (1f - geneticFactorHealth);
+
+            if (rng.NextDouble() < chance)
+            {
+                // === ЛОГИКА МУТАЦИИ ПРИ ЗАРАЖЕНИИ ===
+                string newStrainId = PathogenTracker.TryMutate(
+                    pCarrier.Id,
+                    pCarrier.Type,
+                    pCarrier.Virulence,
+                    pCarrier.Contagiousness,
+                    Simulation.Instance.TotalTicks,
+                    rng);
+
+                // Если произошла мутация, обновляем ссылку на вирус в глобальном словаре (если его там еще нет)
+                if (newStrainId != pCarrier.Id && !ActivePathogens.ContainsKey(newStrainId))
+                {
+                    var record = PathogenTracker.GetRecord(newStrainId);
+                    ActivePathogens[newStrainId] = new Pathogen
+                    {
+                        Id = newStrainId,
+                        Type = pCarrier.Type,
+                        Name = record.Name,
+                        Virulence = record.CurrentVirulence,
+                        Contagiousness = record.CurrentContagiousness,
+                        Drain = 0.02f + record.CurrentVirulence * 0.15f,
+                        Duration = pCarrier.Duration,
+                        Affinity = pCarrier.Affinity,
+                        BirthTick = Simulation.Instance.TotalTicks
+                    };
+                }
+
+                // Заражаем агента текущим (возможно, мутировавшим) штаммом
+                var finalPathogen = GetPathogen(newStrainId) ?? pCarrier;
+                Infect(agent, finalPathogen);
+            }
         }
 
-        // ============================================================
-        // МЕДИЦИНА
-        // ============================================================
         private static float MedicineLevel(Agent agent, Tile tile)
         {
             float medicine = 0f;
             if (tile != null && tile.BuildingFunctional)
             {
-                // Исправлено: Hospice нет в Enums, используем Temple или ось healing
                 if (tile.Building == BuildingType.Temple || tile.DominantAxis == "healing")
                     medicine += 0.3f + tile.BuildingQuality * 0.1f;
             }
@@ -256,19 +296,24 @@ namespace GenesisEngine.Systems
         public static float GetHerdImmunity(List<Agent> agents)
         {
             if (agents == null || agents.Count == 0) return 0f;
-            // Учитываем и приобретенный, и генетический иммунитет
             int immuneCount = agents.Count(a => a.PathogenImmunity.Count > 0 || a.Genome.GeneticResistances.Count > 0);
             return (float)immuneCount / agents.Count;
         }
 
         public static void CleanupOutbreaks(int currentTick)
         {
+            if (currentTick % 500 == 0)
+            {
+                PathogenTracker.CheckExtinctions(currentTick);
+            }
+
             if (currentTick % 1000 != 0) return;
-            var dead = Pathogens.Values
+
+            var dead = ActivePathogens.Values
                 .Where(p => currentTick - p.BirthTick > 6000)
                 .Select(p => p.Id)
                 .ToList();
-            foreach (var id in dead) Pathogens.Remove(id);
+            foreach (var id in dead) ActivePathogens.Remove(id);
         }
     }
 }

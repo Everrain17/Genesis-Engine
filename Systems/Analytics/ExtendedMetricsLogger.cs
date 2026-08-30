@@ -11,9 +11,6 @@ using GenesisEngine.Systems.Observers;
 
 namespace GenesisEngine.Systems.Analytics
 {
-    /// <summary>
-    /// Полный сбор метрик. Все файлы лежат в одной папке запуска.
-    /// </summary>
     public static class ExtendedMetricsLogger
     {
         private static string _runId;
@@ -21,15 +18,16 @@ namespace GenesisEngine.Systems.Analytics
         private static readonly ConcurrentQueue<(string file, string line)> _queue = new();
         private static Thread _thread;
         private static volatile bool _running;
-
         private static int _prevBorn, _prevHunger, _prevPredator, _prevCombat, _prevNatural, _prevPlague, _prevCold;
 
         private static readonly Dictionary<string, string> Headers = new()
         {
             ["extended_data"] = "RunId,Tick,Population,LiteracyRate,AvgKnowersPerKnowledge,Reads100,Teachings100," +
-    "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
-    "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
-    "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity,GiniCoefficient",
+                    "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
+                    "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
+                    "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity,GiniCoefficient," +
+                    "GlobalTemp,GlobalHumidity,GlobalWind,GlobalPrecipitation",  // НОВОЕ
+
 
             ["civ_snapshots"] = "RunId,Tick,CivId,CivName,Population,Era,LexiconSize,GrammarRules,Phonemes,Graphemes," +
                 "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore," +
@@ -42,13 +40,12 @@ namespace GenesisEngine.Systems.Analytics
             ["culture_data"] = "RunId,Tick,Artifacts,SacredArtifacts,Texts,SacredTexts,TextsWithKnowledge,KnownSymbols,AvgSanctity",
 
             ["demography_data"] = "RunId,Tick,Births100,DeathsHunger100,DeathsPredator100,DeathsCombat100,DeathsNatural100,DeathsPlague100,DeathsCold100," +
-    "AvgAge,AvgGeneration,Males,Females,Farmers,Builders,Traders,Soldiers,Scholars,Artisans",
+                "AvgAge,AvgGeneration,Males,Females,Farmers,Builders,Traders,Soldiers,Scholars,Artisans",
 
             ["signals_data"] = "RunId,Tick,Alarm,Food,Come,Danger,Trade,Help,Bond,Mourn,Celebrate",
             ["technology_data"] = "RunId,Tick,Axis,AvgCap",
             ["performance_data"] = "RunId,Tick,TickMs,AgentsMs,CreaturesMs,CivMs,EventsProcessed"
         };
-
 
         public static void Initialize(string runId, string directory)
         {
@@ -94,9 +91,6 @@ namespace GenesisEngine.Systems.Analytics
 
         private static void Enq(string file, string line) => _queue.Enqueue((file, line));
 
-        // ============================================================
-        // ГЛАВНЫЙ МЕТОД: вызывается каждые 100 тиков
-        // ============================================================
         public static void LogAll(int tick, List<Agent> agents, Tile[,] world)
         {
             if (_w.Count == 0) return;
@@ -105,19 +99,18 @@ namespace GenesisEngine.Systems.Analytics
                 var sim = Simulation.Instance;
                 var civs = Simulation.activeCivs;
                 int pop = Math.Max(1, agents.Count);
-
                 var scan = ScanWorld(world);
 
                 // ---------- extended_data ----------
                 int literate = agents.Count(a => KnowledgeSystem.AgentKnowsAnything(a));
                 float literacyRate = (float)literate / pop;
-                float avgKnowers = KnowledgeSystem.All.Count > 0
-                    ? KnowledgeSystem.All.Average(k => (float)k.Knowers.Count) : 0f;
+                float avgKnowers = KnowledgeSystem.All.Count > 0 ? KnowledgeSystem.All.Average(k => (float)k.Knowers.Count) : 0f;
                 int reads = KnowledgeSystem.ReadsSinceLastCsv();
                 int teachings = KnowledgeSystem.TeachingsSinceLastCsv();
                 int lexicon = LanguageSystem.StableWordCount();
                 int grammar = GrammarSystem.RuleCount();
                 int phonemes = 0, graphemes = 0, invariants = 0;
+
                 if (civs != null)
                     foreach (var c in civs)
                     {
@@ -125,6 +118,7 @@ namespace GenesisEngine.Systems.Analytics
                         graphemes += GraphemeSystem.GraphemeCount(c.Id);
                         invariants += SymbolicManipulationSystem.AbstractInvariantCount(c.Id);
                     }
+
                 float avgAggr = agents.Count > 0 ? agents.Average(a => a.Genome.Aggression) : 0f;
                 float avgConsc = agents.Count > 0 ? agents.Average(a => a.Genome.Conscientiousness) : 0f;
                 float avgSelfAw = agents.Count > 0 ? agents.Average(a => a.Genome.SelfAwareness) : 0f;
@@ -132,15 +126,21 @@ namespace GenesisEngine.Systems.Analytics
                 int warsActive = civs != null ? civs.Count(c => DiplomacySystem.IsAtWar(c.Id)) : 0;
                 float herdImmunity = EpidemicSystem.GetHerdImmunity(agents);
                 int infectedCount = agents.Count(a => a.Infected);
-
                 float gini = InequalityObserver.CalculateGiniCoefficient(agents);
 
+                // === НОВОЕ: статистика катастроф ===
+                var (globalTemp, globalHum, globalWind, globalPrecip) = WeatherSystem.GetGlobalState();
+
                 Enq("extended_data",
-                    $"{_runId},{tick},{agents.Count},{literacyRate:F4},{avgKnowers:F2},{reads},{teachings}," +
-                    $"{(scan.InstCount > 0 ? scan.InstSum / scan.InstCount : 0f):F3},{lexicon},{grammar},{phonemes},{graphemes},{invariants}," +
-                    $"{scan.Total},{scan.Farms},{scan.Houses},{scan.Libraries},{scan.Temples},{scan.Markets}," +
-                    $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," +
-                    $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3},{gini:F3}");
+                $"{_runId},{tick},{agents.Count},{literacyRate:F4},{avgKnowers:F2},{reads},{teachings}," +
+                $"{(scan.InstCount > 0 ? scan.InstSum / scan.InstCount : 0f):F3},{lexicon},{grammar},{phonemes},{graphemes},{invariants}," +
+                $"{scan.Total},{scan.Farms},{scan.Houses},{scan.Libraries},{scan.Temples},{scan.Markets}," +
+                $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," +
+                $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3},{gini:F3}," +
+                $"{globalTemp:F3},{globalHum:F3},{globalWind:F3},{globalPrecip:F3}");  // НОВОЕ
+
+
+
 
                 // ---------- demography_data ----------
                 int births = Math.Max(0, sim.TotalBorn - _prevBorn);
@@ -161,17 +161,11 @@ namespace GenesisEngine.Systems.Analytics
                 float avgGen = agents.Count > 0 ? (float)agents.Average(a => a.Generation) : 0f;
                 int males = agents.Count(a => a.BiologicalSex == Sex.Male);
                 var roleCounts = RoleObserver.CountRoles(agents);
-                int farmers = roleCounts[AgentRole.Farmer];
-                int builders = roleCounts[AgentRole.Builder];
-                int traders = roleCounts[AgentRole.Trader];
-                int soldiers = roleCounts[AgentRole.Soldier];
-                int scholars = roleCounts[AgentRole.Scholar];
-                int artisans = roleCounts[AgentRole.Artisan];
 
                 Enq("demography_data",
                     $"{_runId},{tick},{births},{dHunger},{dPredator},{dCombat},{dNatural},{dPlague},{dCold}," +
                     $"{avgAge:F0},{avgGen:F2},{males},{agents.Count - males}," +
-                    $"{farmers},{builders},{traders},{soldiers},{scholars},{artisans}");
+                    $"{roleCounts[AgentRole.Farmer]},{roleCounts[AgentRole.Builder]},{roleCounts[AgentRole.Trader]},{roleCounts[AgentRole.Soldier]},{roleCounts[AgentRole.Scholar]},{roleCounts[AgentRole.Artisan]}");
 
                 // ---------- signals_data ----------
                 var sig = new Dictionary<SignalType, int>();
@@ -206,14 +200,11 @@ namespace GenesisEngine.Systems.Analytics
                 {
                     float avgWar = civs.Average(c => DiplomacySystem.WarPressure(c.Id));
                     float avgPeace = civs.Average(c => DiplomacySystem.PeaceStability(c.Id));
-                    var relCounts = DiplomacySystem.AllTreaties
-                        .GroupBy(t => t.Relation)
-                        .ToDictionary(g => g.Key, g => g.Count());
+                    var relCounts = DiplomacySystem.AllTreaties.GroupBy(t => t.Relation).ToDictionary(g => g.Key, g => g.Count());
                     foreach (var kv in relCounts)
                     {
                         if (kv.Value <= 0) continue;
-                        Enq("diplomacy_data",
-                            $"{_runId},{tick},{kv.Key},{kv.Value},{warsActive},{avgWar:F3},{avgPeace:F3}");
+                        Enq("diplomacy_data", $"{_runId},{tick},{kv.Key},{kv.Value},{warsActive},{avgWar:F3},{avgPeace:F3}");
                     }
                 }
 
@@ -247,8 +238,6 @@ namespace GenesisEngine.Systems.Analytics
                     foreach (var c in civs)
                     {
                         string name = (c.Name ?? "").Replace("\"", "'");
-
-                        // Считаем метрики эпидемии и агрессии конкретно для этой цивилизации
                         int civInfected = c.Members.Count(a => a.Infected);
                         float civHerd = c.Members.Count > 0 ? (float)c.Members.Count(a => a.Genome.ImmuneStrength > 0.8f) / c.Members.Count : 0f;
                         float civAggr = c.Members.Count > 0 ? c.Members.Average(a => a.Genome.Aggression) : 0f;
@@ -265,9 +254,6 @@ namespace GenesisEngine.Systems.Analytics
             catch { }
         }
 
-        // ============================================================
-        // Поток событий (вызывается из ObserverCoordinator)
-        // ============================================================
         public static void LogEvent(int tick, string eventType, string civId, string data)
         {
             if (_w.Count == 0) return;
@@ -275,7 +261,6 @@ namespace GenesisEngine.Systems.Analytics
             Enq("events", $"{_runId},{tick},{eventType},{civId ?? ""},\"{safe}\"");
         }
 
-        // ============================================================
         private sealed class WorldScan
         {
             public int Total, Farms, Houses, Libraries, Temples, Markets, Barracks, Mines, Bridges, Warehouses, Logic, Hospices;
@@ -293,53 +278,24 @@ namespace GenesisEngine.Systems.Analytics
                 for (int y = 0; y < h; y++)
                 {
                     var t = world[x, y];
-
-                    // Считаем ВСЕ здания (независимо от типа)
                     if (t.Building != BuildingType.None)
                     {
                         s.Total++;
-
-                        // === v3: ЭМЕРДЖЕНТНЫЙ ПОДСЧЁТ через DominantAxis и флаги ===
-
-                        // Шахты — специальное здание (флаг IsMine)
-                        if (t.IsMine)
-                            s.Mines++;
-                        // Фермы — ось "food" или "growth"
-                        else if (t.IsFarm)
-                            s.Farms++;
-                        // Дома — ось "shelter", "comfort" или "warmth"
-                        else if (t.IsHouse)
-                            s.Houses++;
-                        // Библиотеки — ось "knowledge"
-                        else if (t.IsLibrary)
-                            s.Libraries++;
-                        // Храмы — ось "faith"
-                        else if (t.IsTemple)
-                            s.Temples++;
-                        // Рынки — ось "trade"
-                        else if (t.IsMarket)
-                            s.Markets++;
-                        // Казармы — ось "defense"
-                        else if (t.IsBarracks)
-                            s.Barracks++;
-                        // Мосты — ось "mobility"
-                        else if (t.IsBridge)
-                            s.Bridges++;
-                        // Склады — ось "storage"
-                        else if (t.HasFunction("storage"))
-                            s.Warehouses++;
-                        // Хосписы — ось "healing"
-                        else if (t.HasFunction("healing"))
-                            s.Hospices++;
+                        if (t.IsMine) s.Mines++;
+                        else if (t.IsFarm) s.Farms++;
+                        else if (t.IsHouse) s.Houses++;
+                        else if (t.IsLibrary) s.Libraries++;
+                        else if (t.IsTemple) s.Temples++;
+                        else if (t.IsMarket) s.Markets++;
+                        else if (t.IsBarracks) s.Barracks++;
+                        else if (t.IsBridge) s.Bridges++;
+                        else if (t.HasFunction("storage")) s.Warehouses++;
+                        else if (t.HasFunction("healing")) s.Hospices++;
                     }
-
-                    // Логические устройства считаются отдельно (это артефакты, не здания)
                     foreach (var a in t.Artifacts)
                     {
-                        if (a.Name != null && a.Name.StartsWith("logic-node"))
-                            s.Logic++;
+                        if (a.Name != null && a.Name.StartsWith("logic-node")) s.Logic++;
                     }
-
                     if (t.InstitutionLevel > 0f) { s.InstSum += t.InstitutionLevel; s.InstCount++; }
                     if (t.SanctityLevel > 0f) { s.SanctSum += t.SanctityLevel; s.SanctCount++; }
                 }
