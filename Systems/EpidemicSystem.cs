@@ -207,7 +207,7 @@ namespace GenesisEngine.Systems
                     * (1f - geneticFactor * 0.5f);
 
                 agent.Body.Health -= damage;
-                float energyDrain = 0.1f + (p.Virulence * 0.15f);
+                float energyDrain = 0.05f + (p.Virulence * 0.15f);
                 agent.Body.Energy = Math.Max(0f, agent.Body.Energy - energyDrain);
 
                 if (agent.Fear < 50f && rng.NextDouble() < 0.04f)

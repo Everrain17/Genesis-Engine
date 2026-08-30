@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq; // <--- ОБЯЗАТЕЛЬНО ДОБАВИТЬ ЭТОТ USING
 using System.Text;
 using ClosedXML.Excel;
 
@@ -17,7 +18,12 @@ namespace GenesisEngine.Systems.Analytics
         {
             try
             {
-                var csvFiles = Directory.GetFiles(folder, "*.csv");
+                // === ИСПРАВЛЕНИЕ: Исключаем event.csv и events.csv из экспорта ===
+                // Оставляем только те файлы, в имени которых НЕТ слова "event"
+                var csvFiles = Directory.GetFiles(folder, "*.csv")
+                    .Where(f => !Path.GetFileName(f).ToLowerInvariant().Contains("event"))
+                    .ToArray();
+
                 if (csvFiles.Length == 0) return;
 
                 string xlsxPath = Path.Combine(folder, "report.xlsx");

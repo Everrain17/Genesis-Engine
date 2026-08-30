@@ -184,24 +184,24 @@ namespace GenesisEngine.Entities
                     float normAge = female.Age / female.MaxAge;
                     float ageFertilityMultiplier = 0f;
 
-                    if (normAge >= 0.10f && normAge < 0.20f)
+                    if (normAge >= 0.15f && normAge < 0.25f)
                     {
                         // Ранняя фертильность (10% - 20% жизни): плавный разгон от 0 до 1.0
                         // (Например, при MaxAge=4000, это возраст 400-800 тиков)
                         ageFertilityMultiplier = (normAge - 0.10f) / 0.10f;
                     }
-                    else if (normAge >= 0.20f && normAge < 0.50f)
+                    else if (normAge >= 0.25f && normAge < 0.45f)
                     {
                         // Пик фертильности (20% - 50% жизни): 100% базового шанса
                         ageFertilityMultiplier = 1.0f;
                     }
-                    else if (normAge >= 0.50f && normAge < 0.70f)
+                    else if (normAge >= 0.45f && normAge < 0.70f)
                     {
                         // Постепенное снижение (50% - 70% жизни): падение с 1.0 до 0.3
                         // Дает хороший запас времени для размножения в зрелом возрасте
                         ageFertilityMultiplier = 1.0f - ((normAge - 0.50f) / 0.20f) * 0.7f;
                     }
-                    else if (normAge >= 0.70f && normAge < 0.85f)
+                    else if (normAge >= 0.70f && normAge < 0.80f)
                     {
                         // "Длинный хвост" фертильности (70% - 85% жизни): падение с 0.3 до 0.0
                         // Критически важно для восстановления популяции после эпидемий!
@@ -270,6 +270,7 @@ namespace GenesisEngine.Entities
                 }
             }
 
+            // Сброс лишнего груза, если агент голоден и тащит мусор
             if (Body.Hunger > 50f)
             {
                 var nonFood = Body.Inventory.FirstOrDefault(o =>
@@ -281,7 +282,7 @@ namespace GenesisEngine.Entities
                 }
             }
 
-            // 2. Потребление еды из инвентаря
+            // 2. Потребление еды из инвентаря (если голод > 40)
             if (Body.Hunger > 40f)
             {
                 var foodItem = Body.Inventory.FirstOrDefault(o =>
@@ -298,24 +299,20 @@ namespace GenesisEngine.Entities
                     if (foodItem.Quantity <= 0f)
                         Body.Inventory.Remove(foodItem);
 
-                    ScatterSeed(currentTile, rng);   // v3: поел — уронил семечко
+                    ScatterSeed(currentTile, rng); // v3: поел — уронил семечко
 
                     LastAction = "Consume";
                     RecordAction("Consume");
-                    return;
+                    return; // Завершаем тик, агент поел
                 }
             }
 
-            // 3. Сбор еды
-            bool hasFoodInInventory = Body.Inventory.Any(o =>
-                MaterialDB.TryGet(o.MaterialId, out var spec) &&
-                spec.Organic > 0.5f &&
-                o.Quantity > 0f);
-
-            if (Body.Hunger > 30f && !hasFoodInInventory)
+            // 3. Сбор еды с земли или ресурсов тайла (если в инвентаре нет еды, но голод > 40)
+            if (Body.Hunger > 40f)
             {
                 float capacity = Body.MaxCarryWeight - Body.CurrentCarryWeight;
 
+                // Сначала пытаемся подобрать объект с земли
                 var groundFood = currentTile.GroundObjects.FirstOrDefault(o =>
                     o.Quantity > 0.1f &&
                     MaterialDB.TryGet(o.MaterialId, out var spec) &&
@@ -324,49 +321,30 @@ namespace GenesisEngine.Entities
                 if (groundFood != null && capacity > 0.1f)
                 {
                     float amount = Math.Min(5f, Math.Min(capacity, groundFood.Quantity));
-
                     if (ManipulationSystem.PickUp(this, groundFood, amount))
                     {
                         ObservationSystem.RecordPattern(this, "PickUp", groundFood, null, 10f);
                         currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.01f);
-                        currentTile.Fertility = Math.Max(0.05f, currentTile.Fertility * 0.995f); // Деградация поч
+                        currentTile.Fertility = Math.Max(0.05f, currentTile.Fertility * 0.995f);
                         LastAction = "PickUp";
                         RecordAction("PickUp");
                         return;
                     }
                 }
 
+                // Если подобрать не удалось или некуда, едим абстрактную еду тайла
+                // ВАЖНО: Вернули порог > 1f, чтобы агент не ел по 0.1 единице каждый тик и не застревал в return
                 float tileFood = currentTile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
-
                 if (tileFood > 1f)
                 {
                     currentTile.Resources[ResourceType.Food] = tileFood - 1f;
                     Body.Hunger = Math.Max(0f, Body.Hunger - 18f);
                     Body.Energy = Math.Min(100f, Body.Energy + 8f);
-
-                    ScatterSeed(currentTile, rng);   // v3
-                    currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.02f); // v3
-
+                    ScatterSeed(currentTile, rng);
+                    currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.02f);
                     LastAction = "Forage";
                     RecordAction("Forage");
                     return;
-                }
-
-                if (currentTile.GroundObjects.Count > 0 && rng.NextDouble() < 0.3f)
-                {
-                    var randomObj = currentTile.GroundObjects[rng.Next(currentTile.GroundObjects.Count)];
-
-                    if (randomObj.Quantity > 0.1f && capacity > 0.1f)
-                    {
-                        float amount = Math.Min(1f, Math.Min(capacity, randomObj.Quantity));
-
-                        if (ManipulationSystem.PickUp(this, randomObj, amount))
-                        {
-                            LastAction = "PickUp";
-                            RecordAction("PickUp");
-                            return;
-                        }
-                    }
                 }
             }
             // === НОВОЕ: Добыча из шахт ===

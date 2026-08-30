@@ -408,30 +408,26 @@ namespace GenesisEngine
 
                 float currentFood = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
 
-                // === НОВОЕ: Регенерация зависит от плодородия ===
-                // Чем ниже Fertility, тем медленнее восстанавливается еда
-                float baseRegeneration = tile.Fertility * 3f;
-
-                // Штраф за истощение (Exhaustion)
-                float exhaustionPenalty = 1f - tile.Exhaustion;
+                // Регенерация зависит от плодородия
+                float baseRegeneration = tile.Fertility * 6f;
+                float exhaustionPenalty = 1f - (tile.Exhaustion * 0.5f);
                 float regeneration = baseRegeneration * exhaustionPenalty;
 
                 bool isFarm = tile.BuildingFunctional && tile.IsFarm;
                 if (isFarm)
                 {
                     regeneration *= (1f + tile.BuildingQuality * 4f);
-                    // Фермы частично компенсируют истощение
                     tile.Exhaustion = Math.Max(0f, tile.Exhaustion - 0.005f);
                 }
 
                 tile.Resources[ResourceType.Food] = Math.Min(100f, currentFood + regeneration);
 
-                // Ограничение количества объектов на тайле
-                if (tile.GroundObjects.Count > 12)
-                    tile.GroundObjects.RemoveRange(0, tile.GroundObjects.Count - 12);
+                // === ИСПРАВЛЕНИЕ: Мы НЕ удаляем старые объекты! ===
+                // Вместо этого мы просто не добавляем новые, если на тайле уже есть "свалка" (например, > 15 объектов)
+                bool isTileCluttered = tile.GroundObjects.Count > 15;
 
-                // Фермы производят еду
-                if (isFarm)
+                // Фермы производят еду (только если тайл не перегружен)
+                if (isFarm && !isTileCluttered)
                 {
                     tile.GroundObjects.Add(new WorldObject
                     {
@@ -441,8 +437,7 @@ namespace GenesisEngine
                     });
                 }
 
-                // === НОВОЕ: Экологическая обратная связь ===
-                // Если мало органики на тайле, плодородие медленно падает
+                // Экологическая обратная связь
                 float organicAmount = tile.GroundObjects
                     .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
                     .Sum(o => o.Quantity);
@@ -450,19 +445,17 @@ namespace GenesisEngine
                 float targetOrganic = tile.Fertility * 40f;
                 if (isFarm) targetOrganic *= (1f + tile.BuildingQuality * 2f);
 
-                // Если органики меньше 50% от цели — плодородие деградирует
                 if (organicAmount < targetOrganic * 0.5f)
                 {
                     tile.Fertility = Math.Max(0.05f, tile.Fertility * 0.998f);
                 }
-                // Если органики достаточно — плодородие медленно восстанавливается
                 else if (organicAmount > targetOrganic * 0.8f && tile.Exhaustion < 0.3f)
                 {
                     tile.Fertility = Math.Min(1f, tile.Fertility * 1.001f);
                 }
 
-                // Пополнение органики, если её мало
-                if (organicAmount < targetOrganic)
+                // Пополнение органики, если её мало (И ТОЛЬКО если на тайле не свалка!)
+                if (organicAmount < targetOrganic && !isTileCluttered)
                 {
                     float add = Math.Min(20f, targetOrganic - organicAmount);
                     if (add > 1f)
