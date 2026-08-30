@@ -202,7 +202,7 @@ namespace GenesisEngine.Systems
                 Tick = Simulation.Instance.TotalTicks,
                 Actor = a,
                 Position = a.Position,
-                Data = creature.Species.ToString(),
+                Data = creature.Genome.CarnivoreDrive > 0.4f ? "Predator" : "Herbivore",
                 Value = meat.Quantity
             });
 

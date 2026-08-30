@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using GenesisEngine.Core;
 using GenesisEngine.World;
+using GenesisEngine.Systems.Physics;
+using GenesisEngine.Systems;
 
 namespace GenesisEngine.Entities
 {
@@ -12,7 +14,13 @@ namespace GenesisEngine.Entities
         public Guid HerdId;          // Тег стаи/гнезда для распознавания "своих"
         public Sex BiologicalSex;
         public CreatureGenome Genome;
-
+        public CreatureBehavior Behavior => Genome.CarnivoreDrive > 0.4f ? CreatureBehavior.Predator : CreatureBehavior.Herbivore;
+        public float Size => Genome.Size;
+        public float MaxAge => Genome.MaxAge;
+        public float Speed => Genome.Speed;
+        public float Fertility => Genome.Fertility;
+        public float HerdInstinct => Genome.HerdInstinct;
+        public float Aggression => Genome.Aggression;
         public float Energy = 100f, Hunger, Age;
         public Vector2 Position;
         public float MateCooldown;   // Задержка после размножения

@@ -105,7 +105,53 @@ namespace GenesisEngine.Systems
             p.Drain = 0.02f + p.Virulence * 0.15f;
             return p;
         }
+        /// <summary>
+        /// Вирус случайно мутирует один ген агента при выздоровлении.
+        /// Эмерджентная адаптация: агенты сами выводят популяцию из кризиса через поколения.
+        /// </summary>
+        private static void MutateRandomGene(Agent agent, Random rng)
+        {
+            // Список всех генов, которые вирус может изменить
+            string[] genes = { "SelfAwareness", "Aggression", "Openness", "Agreeableness",
+                       "Conscientiousness", "Extraversion", "Fertility", "ImmuneStrength" };
 
+            // Выбираем случайный ген
+            string targetGene = genes[rng.Next(genes.Length)];
+
+            // Случайное изменение: -0.1f или +0.1f
+            float change = rng.NextDouble() < 0.5f ? -0.1f : 0.1f;
+
+            // Применяем изменение
+            switch (targetGene)
+            {
+                case "SelfAwareness":
+                    agent.Genome.SelfAwareness = Math.Clamp(agent.Genome.SelfAwareness + change, 0f, 1f);
+                    break;
+                case "Aggression":
+                    agent.Genome.Aggression = Math.Clamp(agent.Genome.Aggression + change, 0f, 1f);
+                    break;
+                case "Openness":
+                    agent.Genome.Openness = Math.Clamp(agent.Genome.Openness + change, 0f, 1f);
+                    break;
+                case "Agreeableness":
+                    agent.Genome.Agreeableness = Math.Clamp(agent.Genome.Agreeableness + change, 0f, 1f);
+                    break;
+                case "Conscientiousness":
+                    agent.Genome.Conscientiousness = Math.Clamp(agent.Genome.Conscientiousness + change, 0f, 1f);
+                    break;
+                case "Extraversion":
+                    agent.Genome.Extraversion = Math.Clamp(agent.Genome.Extraversion + change, 0f, 1f);
+                    break;
+                case "Fertility":
+                    agent.Genome.Fertility = Math.Clamp(agent.Genome.Fertility + change, 0f, 1f);
+                    break;
+                case "ImmuneStrength":
+                    agent.Genome.ImmuneStrength = Math.Clamp(agent.Genome.ImmuneStrength + change, 0f, 1f);
+                    break;
+            }
+
+            FileLogger.Log($"[TICK {Simulation.Instance.TotalTicks}] VIRAL MUTATION: Agent {agent.Id} gene '{targetGene}' changed by {change:+0.0;-0.0}", FileLogger.LogLevel.Info);
+        }
         public static void Infect(Agent agent, Pathogen p)
         {
             agent.Infected = true;
@@ -208,11 +254,12 @@ namespace GenesisEngine.Systems
                             {
                                 agent.Genome.GeneticResistances.Add(p.Type);
                                 agent.Genome.GeneticResistances.Sort();
-                                FileLogger.Log(
-                                    $"[TICK {Simulation.Instance.TotalTicks}] GENETIC ASSIMILATION: Agent {agent.Id} lineage adapted to '{p.Type}'",
-                                    FileLogger.LogLevel.Info);
+                                FileLogger.Log($"[TICK {Simulation.Instance.TotalTicks}] GENETIC ASSIMILATION: Agent {agent.Id} lineage adapted to '{p.Type}'", FileLogger.LogLevel.Info);
                             }
                         }
+
+                        // === НОВОЕ: Вирус мутирует случайный ген ===
+                        MutateRandomGene(agent, rng);
 
                         agent.Body.Health = Math.Min(100f, agent.Body.Health + 15f);
                         agent.Fear = Math.Max(0f, agent.Fear - 20f);

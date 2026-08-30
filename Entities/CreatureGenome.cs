@@ -52,8 +52,6 @@ namespace GenesisEngine.Entities
 
         public CreatureGenome Mutate(Random rng)
         {
-            float M(float v, float rate) => Math.Clamp(v + ((float)rng.NextDouble() - 0.5f) * rate, 0f, v == nameof(MaxAge) ? 10000f : (v == nameof(Size) ? 6f : 1f));
-
             return new CreatureGenome
             {
                 Size = Math.Clamp(Size + ((float)rng.NextDouble() - 0.5f) * 0.5f, 0.5f, 6f),

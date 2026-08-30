@@ -271,12 +271,12 @@ namespace GenesisEngine
 
                 // 5. Создание трупа (единый источник мяса и будущего удобрения)
                 // Чем больше размер агента, тем больше мяса
-                float meatAmount = 15f + a.Genome.Size * 5f;
+
 
                 var corpse = new Corpse
                 {
                     Id = a.Id,
-                    Quantity = meatAmount,
+                    Quantity = 8f,
                     SpawnTick = TotalTicks
                 };
 
@@ -287,7 +287,7 @@ namespace GenesisEngine
                 tile.GroundObjects.Add(new WorldObject
                 {
                     MaterialId = MaterialDB.GetFoodMaterialId(),
-                    Quantity = meatAmount,
+                    Quantity = corpse.Quantity,
                     Position = a.Position,
                     IsCorpse = true // Флаг для системы разложения
                 });
