@@ -55,23 +55,7 @@ namespace GenesisEngine.Systems
         public int Tick;
         public string AuthorId;
     }
-    public static class PropertyEffects
-    {
-        public static float GetProp(ResourceSpec s, string p) => p switch
-        {
-            "Hardness" => s.Hardness,
-            "Conductivity" => s.Conductivity,
-            "Buoyancy" => s.Buoyancy,
-            "Flexibility" => s.Flexibility,
-            "Organic" => s.Organic,
-            "HeatOutput" => s.HeatOutput,
-            "Logic" => s.Logic,
-            "Rarity" => s.Rarity,
-            "Durability" => s.Durability,
-            "Salt" => s.Salt,
-            _ => 0
-        };
-    }
+
 
     public static class NameBank
     {

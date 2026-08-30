@@ -15,7 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v5 - DWAaAP"; //v5 - DeadliestWeather-and-AdvancePrimitives
+        public const string CodeVersion = "v7 - Rework-Agent-Fertility-and-Animal-Threat"; //v5 - DeadliestWeather-and-AdvancePrimitives
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
@@ -187,33 +187,7 @@ namespace GenesisEngine
                     Creatures.RemoveAt(i);
                     continue;
                 }
-
-                c.Update(World, Agents, Creatures);
-                // Хищники атакуют агентов
-                if (c.Behavior == CreatureBehavior.Predator)
-                {
-                    var target = SpatialGrid.GetNearby(c.Position, 1)
-                        .FirstOrDefault(a => a != null && a.Body.Health > 0);
-                    if (target != null)
-                    {
-                        float damage = c.Size * 3f;
-                        target.Body.Health -= damage;
-                        target.Fear += 30f;
-                        target.LastAction = "Predated";
-                        if (target.Body.Health <= 0)
-                        {
-                            TotalDiedPredator++;
-                            EventBus.Publish(new SimEvent
-                            {
-                                Type = SimEventType.AgentDied,
-                                Tick = TotalTicks,
-                                Actor = target,
-                                Position = target.Position,
-                                Data = "Predated"
-                            });
-                        }
-                    }
-                }
+               
                 if (c.Energy <= 0 || c.Age > c.MaxAge)
                     Creatures.RemoveAt(i);
             }
@@ -512,7 +486,8 @@ namespace GenesisEngine
 
             // Эмерджентный лимит: чем больше агентов, тем меньше места для дикой природы, 
             // но экосистема старается поддерживать базовый уровень
-            int maxCreatures = Math.Max(50, 200 - Agents.Count / 2);
+            int mapArea = World.GetLength(0) * World.GetLength(1);
+            int maxCreatures = Math.Max(300, (int)(mapArea * 0.04f) + Agents.Count);
 
             if (Creatures.Count >= maxCreatures) return;
 
@@ -768,42 +743,6 @@ namespace GenesisEngine
                 }
             }
         }
-
-        private static int GetIntArg(string[] args, string name, int defaultValue)
-        {
-            for (int i = 0; i < args.Length - 1; i++)
-            {
-                if (args[i] == name && int.TryParse(args[i + 1], out int value))
-                    return value;
-            }
-
-            return defaultValue;
-        }
-
-        private static FileLogger.LogLevel ParseLogLevel(string[] args)
-        {
-            string level = GetStringArg(args, "--loglevel", "info").ToLowerInvariant();
-
-            return level switch
-            {
-                "warning" => FileLogger.LogLevel.Warning,
-                "warn" => FileLogger.LogLevel.Warning,
-                "war" => FileLogger.LogLevel.War,
-                "death" => FileLogger.LogLevel.Death,
-                "error" => FileLogger.LogLevel.Error,
-                _ => FileLogger.LogLevel.Info
-            };
-        }
-
-        private static string GetStringArg(string[] args, string name, string defaultValue)
-        {
-            for (int i = 0; i < args.Length - 1; i++)
-            {
-                if (args[i] == name)
-                    return args[i + 1];
-            }
-
-            return defaultValue;
-        }
+       
     }
 }

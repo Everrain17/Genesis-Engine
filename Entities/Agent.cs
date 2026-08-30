@@ -161,9 +161,8 @@ namespace GenesisEngine.Entities
 
             // 1. Размножение
             // 1. Размножение
-            if (Body.Hunger < 30 && Body.Energy > 50 &&
-                Age > 500 && Age < MaxAge * 0.7f &&
-                Genome.BondingDrive > 0.3f)
+            // 1. Размножение
+            if (Body.Hunger < 30 && Body.Energy > 50 && Genome.BondingDrive > 0.3f)
             {
                 var partner = nearby.FirstOrDefault(a =>
                     a != null &&
@@ -172,70 +171,101 @@ namespace GenesisEngine.Entities
                     a.BiologicalSex != BiologicalSex &&
                     a.Position.Distance(Position) <= 2 &&
                     a.Body.Hunger < 40 &&
-                    a.Body.Energy > 40 &&
-                    a.Age > 500 &&
-                    a.Age < a.MaxAge * 0.7f);
+                    a.Body.Energy > 40);
 
                 if (partner != null)
                 {
-                    // === НОВОЕ: Несущая способность + Демографический переход ===
+                    // === НОВОЕ: Реалистичная биологическая кривая фертильности ===
+                    // Фертильность определяется по женскому агенту в паре, так как у мужчин нет резкого обрыва (менопаузы)
+                    Agent female = this.BiologicalSex == Sex.Female ? this : partner;
 
-                    // 2. Демографический переход (развитие цивилизации)
-                    float civDevelopment = 1f;
-                    if (!string.IsNullOrEmpty(CivilizationId))
+                    // Нормализованный возраст: 0.0 = рождение, 1.0 = MaxAge
+
+                    float normAge = female.Age / female.MaxAge;
+                    float ageFertilityMultiplier = 0f;
+
+                    if (normAge >= 0.10f && normAge < 0.20f)
                     {
-                        var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == CivilizationId);
-                        if (civ != null)
-                        {
-                            // Индекс развития: образование + инструменты + институты
-                            float educationIndex = civ.EducationLevel;
-                            float toolIndex = civ.AvgToolHardness;
-                            float institutionIndex = Math.Min(1f, civ.EmergentStructuresCount / 20f);
-
-                            civDevelopment = (educationIndex + toolIndex + institutionIndex) / 3f;
-                        }
+                        // Ранняя фертильность (10% - 20% жизни): плавный разгон от 0 до 1.0
+                        // (Например, при MaxAge=4000, это возраст 400-800 тиков)
+                        ageFertilityMultiplier = (normAge - 0.10f) / 0.10f;
+                    }
+                    else if (normAge >= 0.20f && normAge < 0.50f)
+                    {
+                        // Пик фертильности (20% - 50% жизни): 100% базового шанса
+                        ageFertilityMultiplier = 1.0f;
+                    }
+                    else if (normAge >= 0.50f && normAge < 0.70f)
+                    {
+                        // Постепенное снижение (50% - 70% жизни): падение с 1.0 до 0.3
+                        // Дает хороший запас времени для размножения в зрелом возрасте
+                        ageFertilityMultiplier = 1.0f - ((normAge - 0.50f) / 0.20f) * 0.7f;
+                    }
+                    else if (normAge >= 0.70f && normAge < 0.85f)
+                    {
+                        // "Длинный хвост" фертильности (70% - 85% жизни): падение с 0.3 до 0.0
+                        // Критически важно для восстановления популяции после эпидемий!
+                        ageFertilityMultiplier = 0.3f - ((normAge - 0.70f) / 0.15f) * 0.3f;
+                    }
+                    else
+                    {
+                        // Слишком юные (<10%) или глубокая старость (>85%)
+                        ageFertilityMultiplier = 0f;
                     }
 
-                    // Чем развитее цивилизация, тем ниже рождаемость
-
-
-                    // 3. Итоговый шанс размножения
-                    float chance = Genome.Fertility * Genome.BondingDrive * 0.02f;
-
-
-                    if (rng.NextDouble() < chance)
+                    // Если биологический возраст не позволяет, просто пропускаем этот тик (не прерываем весь Update)
+                    if (ageFertilityMultiplier > 0f)
                     {
-                        var mother = BiologicalSex == Sex.Female ? this : partner;
-                        var father = BiologicalSex == Sex.Male ? this : partner;
-                        string childCivId = "";
-
-                        if (!string.IsNullOrEmpty(mother.CivilizationId) &&
-                            mother.CivilizationId == partner.CivilizationId)
-                            childCivId = mother.CivilizationId;
-                        else if (!string.IsNullOrEmpty(mother.CivilizationId))
-                            childCivId = mother.CivilizationId;
-                        else if (!string.IsNullOrEmpty(partner.CivilizationId))
-                            childCivId = partner.CivilizationId;
-
-                        var child = new Agent(Position, rng, Simulation.Instance.TotalTicks,
-                            Math.Max(Generation, partner.Generation) + 1)
+                        // 2. Демографический переход (развитие цивилизации снижает рождаемость)
+                        float civDevelopment = 1f;
+                        if (!string.IsNullOrEmpty(CivilizationId))
                         {
-                            Genome = AgentGenome.Combine(mother.Genome, father.Genome, rng),
-                            MotherId = mother.Id,
-                            FatherId = father.Id,
-                            CivilizationId = childCivId
-                        };
+                            var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == CivilizationId);
+                            if (civ != null)
+                            {
+                                float educationIndex = civ.EducationLevel;
+                                float toolIndex = civ.AvgToolHardness;
+                                float institutionIndex = Math.Min(1f, civ.EmergentStructuresCount / 20f);
+                                civDevelopment = (educationIndex + toolIndex + institutionIndex) / 3f;
+                            }
+                        }
 
-                        KnowledgeSystem.InheritFromParents(child, mother, father);
-                        Simulation.Instance.BornAgents.Add(child);
-                        Simulation.Instance.TotalBorn++;
-                        ChildrenIds.Add(child.Id);
-                        Body.Energy -= 25f;
-                        partner.Body.Energy -= 25f;
-                        Loneliness = 0;
+                        // 3. Итоговый шанс: базовая фертильность * биологический возраст * демографический переход
+                        float chance = Genome.Fertility * Genome.BondingDrive * 0.02f * ageFertilityMultiplier / (1f + civDevelopment);
 
-                        if (BondedPartner == null)
-                            BondedPartner = partner.Id;
+                        if (rng.NextDouble() < chance)
+                        {
+                            var mother = BiologicalSex == Sex.Female ? this : partner;
+                            var father = BiologicalSex == Sex.Male ? this : partner;
+
+                            string childCivId = "";
+                            if (!string.IsNullOrEmpty(mother.CivilizationId) && mother.CivilizationId == partner.CivilizationId)
+                                childCivId = mother.CivilizationId;
+                            else if (!string.IsNullOrEmpty(mother.CivilizationId))
+                                childCivId = mother.CivilizationId;
+                            else if (!string.IsNullOrEmpty(partner.CivilizationId))
+                                childCivId = partner.CivilizationId;
+
+                            var child = new Agent(Position, rng, Simulation.Instance.TotalTicks, Math.Max(Generation, partner.Generation) + 1)
+                            {
+                                Genome = AgentGenome.Combine(mother.Genome, father.Genome, rng),
+                                MotherId = mother.Id,
+                                FatherId = father.Id,
+                                CivilizationId = childCivId
+                            };
+
+                            KnowledgeSystem.InheritFromParents(child, mother, father);
+                            Simulation.Instance.BornAgents.Add(child);
+                            Simulation.Instance.TotalBorn++;
+                            ChildrenIds.Add(child.Id);
+
+                            Body.Energy -= 25f;
+                            partner.Body.Energy -= 25f;
+                            Loneliness = 0;
+
+                            if (BondedPartner == null)
+                                BondedPartner = partner.Id;
+                        }
                     }
                 }
             }

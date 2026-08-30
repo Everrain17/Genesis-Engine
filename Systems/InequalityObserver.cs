@@ -64,14 +64,5 @@ namespace GenesisEngine.Systems
 
             return wealth;
         }
-
-        /// <summary>
-        /// Проверяет, есть ли риск восстания (высокое неравенство).
-        /// </summary>
-        public static bool IsRevoltRisk(List<Agent> agents)
-        {
-            float gini = CalculateGiniCoefficient(agents);
-            return gini > 0.6f;  // Порог восстания
-        }
     }
 }

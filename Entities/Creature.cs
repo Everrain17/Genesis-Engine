@@ -14,7 +14,7 @@ namespace GenesisEngine.Entities
         public Guid HerdId;          // Тег стаи/гнезда для распознавания "своих"
         public Sex BiologicalSex;
         public CreatureGenome Genome;
-        public CreatureBehavior Behavior => Genome.CarnivoreDrive > 0.4f ? CreatureBehavior.Predator : CreatureBehavior.Herbivore;
+        public CreatureBehavior Behavior => Genome.CarnivoreDrive > 0.8f ? CreatureBehavior.Predator : CreatureBehavior.Herbivore;
         public float Size => Genome.Size;
         public float MaxAge => Genome.MaxAge;
         public float Speed => Genome.Speed;
@@ -43,7 +43,8 @@ namespace GenesisEngine.Entities
         {
             var rng = RandomProvider.GetRandom();
             Age++;
-            Hunger += 0.04f + (Genome.Size * 0.02f); // Большие тратят больше энергии
+            // ИСПРАВЛЕНИЕ: Голод растет адекватно. Теперь даже крупному зверю нужно ~400-800 тиков, чтобы проголодаться до критического состояния.
+            Hunger += 0.05f + (Genome.Size * 0.005f);
 
             if (Energy <= 0 || Age > MaxAge)
             {
@@ -117,17 +118,24 @@ namespace GenesisEngine.Entities
             // 3. Питание
             if (Hunger > 20f)
             {
-                if (Genome.CarnivoreDrive > 0.4f) // ХИЩНИК
+                // ИСПРАВЛЕНИЕ 1: Используем свойство Behavior (которое мы сделали > 0.8f), а не хардкод 0.4f!
+                if (Behavior == CreatureBehavior.Predator)
                 {
-                    // Приоритет 1: Травоядные животные (CarnivoreDrive < 0.4)
+                    // Приоритет 1: Травоядные животные (Ищем тех, у кого Behavior == Herbivore)
                     var preyCreature = creatures.FirstOrDefault(c =>
-                        c != this && c.Genome.CarnivoreDrive < 0.4f && c.Position.Distance(Position) <= 1.5f && c.Energy > 0);
+                        c != this && c.Behavior == CreatureBehavior.Herbivore && c.Position.Distance(Position) <= 1.5f && c.Energy > 0);
 
-                    // Приоритет 2: Агенты (только если очень голоден или рядом нет травоядных)
+                    // Приоритет 2: Агенты
                     var preyAgent = agents.FirstOrDefault(a =>
                         a.Body.Health > 0 && a.Position.Distance(Position) <= 1.5f);
 
-                    if (preyCreature != null || (preyAgent != null && Hunger > 85f))
+                    // ИСПРАВЛЕНИЕ 2: Эмерджентный "страх перед толпой". 
+                    // Хищник считает агентов в радиусе 2.5 тайлов. Если их больше 2, он считает это слишком опасным.
+                    int nearbyAgentsCount = agents.Count(a => a.Body.Health > 0 && a.Position.Distance(Position) <= 2.5f);
+                    bool isTooDangerous = nearbyAgentsCount > 5;
+
+                    // Нападает на человека ТОЛЬКО если нет травоядных, он умирает от голода (Hunger > 95) и человек ОДИН.
+                    if (preyCreature != null || (preyAgent != null && Hunger > 75f && !isTooDangerous))
                     {
                         if (preyCreature != null)
                         {

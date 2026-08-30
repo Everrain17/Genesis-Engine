@@ -88,16 +88,6 @@ namespace GenesisEngine.Systems
             Season.Winter => 0.5f,   // Зима: мало торговли
             _ => 1.0f
         };
-        public static float GetImmunityModifier(Season season)
-        {
-            return season switch
-            {
-                Season.Spring => 1.1f,   // Весна: иммунитет чуть выше
-                Season.Summer => 1.2f,   // Лето: иммунитет выше
-                Season.Autumn => 0.9f,   // Осень: иммунитет чуть ниже
-                Season.Winter => 0.7f,   // Зима: иммунитет ниже
-                _ => 1.0f
-            };
-        }
+
     }
 }

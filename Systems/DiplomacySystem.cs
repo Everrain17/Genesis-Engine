@@ -140,22 +140,7 @@ namespace GenesisEngine.Systems
         }
 
 
-        public static void ObserveCombat(Agent a, Agent b)
-        {
-            if (a == null || b == null)
-                return;
-
-            if (string.IsNullOrEmpty(a.CivilizationId) ||
-                string.IsNullOrEmpty(b.CivilizationId))
-                return;
-
-            if (a.CivilizationId == b.CivilizationId)
-                return;
-
-            ShiftRelation(a.CivilizationId, b.CivilizationId, -6f);
-            RecordLoss(b.CivilizationId);
-        }
-
+        
         public static void UpdateDiplomacy(List<CivilizationSnapshot> civs, Random rng)
         {
             if (civs == null || rng == null)

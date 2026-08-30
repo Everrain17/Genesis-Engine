@@ -22,10 +22,6 @@ namespace GenesisEngine.Systems
             return Computation.Values.Sum();
         }
 
-        public static float GetResearchBonus(string civId)
-        {
-            return GetCivComputation(civId) * 0.10f;
-        }
 
         public static void Run(List<CivilizationSnapshot> civs, Random rng)
         {

@@ -73,26 +73,7 @@ namespace GenesisEngine.Systems
             return artifact;
         }
 
-        public static WrittenText CreateText(Agent author, Tile tile, string content)
-        {
-            if (author == null || tile == null) return null;
-            if (author.Genome.SelfAwareness < 0.4f) return null;
-
-            var text = new WrittenText
-            {
-                AuthorId = author.Id,
-                CreationTick = Simulation.Instance.TotalTicks,
-                Content = content
-            };
-
-            text.Symbols.Add("circle");
-            text.Symbols.Add(author.Genome.Aggression > 0.7f ? "mark" : "bond");
-
-            tile.Texts.Add(text);
-            AllTexts.Add(text);
-
-            return text;
-        }
+       
         public static WrittenText CreateKnowledgeText(Agent author, Tile tile, Knowledge knowledge)
         {
             if (author == null || tile == null || knowledge == null)

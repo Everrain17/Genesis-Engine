@@ -67,30 +67,7 @@ namespace GenesisEngine.Systems.Behaviour
             pattern.Occurrences++;
         }
 
-        public static ActionPattern GetBestPattern(Agent agent, string desiredOutcome)
-        {
-            if (agent == null)
-                return null;
 
-            ActionPattern best = null;
-            float bestScore = -1f;
-
-            foreach (var p in agent.Memory.Patterns)
-            {
-                if (p.Object1 != desiredOutcome && p.Object2 != desiredOutcome)
-                    continue;
-
-                float score = p.GetConfidence();
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    best = p;
-                }
-            }
-
-            return best;
-        }
 
         private static void RemoveWorstPattern(MemorySystem memory)
         {

@@ -163,14 +163,6 @@ namespace GenesisEngine.Systems
             }
         }
 
-        public static string BestReferent(string civId, SignalType signal)
-        {
-            return Words.Values
-                .Where(w => w.CivId == civId && w.Signal == signal)
-                .OrderByDescending(w => w.Strength)
-                .Select(w => w.Referent)
-                .FirstOrDefault();
-        }
 
         public static int StableWordCount(string civId = null)
         {

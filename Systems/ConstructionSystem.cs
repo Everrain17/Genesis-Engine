@@ -282,56 +282,7 @@ namespace GenesisEngine.Systems
         /// Проверяет и обновляет контроль территорий. Вызывается каждые 100 тиков.
         /// Если здание разрушилось — территория становится оспоримой.
         /// </summary>
-        public static void UpdateTerritoryControl(Tile[,] world)
-        {
-            if (world == null) return;
-
-            int width = world.GetLength(0);
-            int height = world.GetLength(1);
-
-            for (int x = 0; x < width; x++)
-            {
-                for (int y = 0; y < height; y++)
-                {
-                    var tile = world[x, y];
-
-                    // Если тайл ничей — пропускаем
-                    if (string.IsNullOrEmpty(tile.OwnerCivId)) continue;
-
-                    // Проверяем, есть ли рядом активное здание этой цивилизации
-                    bool hasActiveBuilding = false;
-                    for (int dx = -5; dx <= 5; dx++)
-                    {
-                        for (int dy = -5; dy <= 5; dy++)
-                        {
-                            int nx = x + dx, ny = y + dy;
-                            if (nx < 0 || nx >= width || ny < 0 || ny >= height) continue;
-
-                            var neighbor = world[nx, ny];
-                            if (neighbor.OwnerCivId == tile.OwnerCivId &&
-                                neighbor.Building != BuildingType.None &&
-                                neighbor.Durability > 0f)
-                            {
-                                hasActiveBuilding = true;
-                                break;
-                            }
-                        }
-                        if (hasActiveBuilding) break;
-                    }
-
-                    // Если активного здания нет — территория становится оспоримой
-                    if (!hasActiveBuilding && !tile.IsContested)
-                    {
-                        tile.IsContested = true;
-                    }
-                    // Если здание появилось снова — снимаем оспаривание
-                    else if (hasActiveBuilding && tile.IsContested)
-                    {
-                        tile.IsContested = false;
-                    }
-                }
-            }
-        }
+        
         private static string Root(ResourceSpec spec)
         {
             if (string.IsNullOrEmpty(spec.Id)) return "mat";

@@ -302,65 +302,7 @@ namespace GenesisEngine.Systems
             public int Tick;
         }
 
-        public static AnalogyObservation DetectAnalogy(
-            string contextA, ResourceSpec specA,
-            string contextB, ResourceSpec specB)
-        {
-            // Сравниваем наблюдаемые свойства материалов
-            float similarity = 0f;
-            int matches = 0;
-
-            // Проверяем основные свойства
-            if (Math.Abs(specA.Hardness - specB.Hardness) < 0.2f)
-            {
-                similarity += 0.2f;
-                matches++;
-            }
-
-            if (Math.Abs(specA.Conductivity - specB.Conductivity) < 0.2f)
-            {
-                similarity += 0.2f;
-                matches++;
-            }
-
-            if (Math.Abs(specA.Organic - specB.Organic) < 0.2f)
-            {
-                similarity += 0.2f;
-                matches++;
-            }
-
-            if (Math.Abs(specA.Logic - specB.Logic) < 0.2f)
-            {
-                similarity += 0.2f;
-                matches++;
-            }
-
-            if (Math.Abs(specA.Flexibility - specB.Flexibility) < 0.2f)
-            {
-                similarity += 0.2f;
-                matches++;
-            }
-
-            string sharedProperty = matches switch
-            {
-                0 => "none",
-                1 => "single_property",
-                2 => "partial_similarity",
-                3 => "structural_similarity",
-                4 => "strong_similarity",
-                5 => "near_identical",
-                _ => "unknown"
-            };
-
-            return new AnalogyObservation
-            {
-                ContextA = contextA,
-                ContextB = contextB,
-                SharedProperty = sharedProperty,
-                Similarity = similarity,
-                Tick = Simulation.Instance.TotalTicks
-            };
-        }
+       
 
         // ============================================================
         // ИНТЕГРАЦИЯ: Запуск примитивов для агента

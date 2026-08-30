@@ -67,42 +67,7 @@ namespace GenesisEngine.Entities
             };
         }
 
-        public AgentGenome Mutate(Random rng)
-        {
-            float M(float v, float r) => Math.Clamp(v + ((float)rng.NextDouble() - 0.5f) * r, 0, 1);
-
-            // Копируем генетические устойчивости. 
-            var mutatedResistances = new List<string>(GeneticResistances);
-
-            return new AgentGenome
-            {
-                BaseVision = Math.Clamp(BaseVision + ((float)rng.NextDouble() - 0.5f), 2, 12),
-                BaseHearing = Math.Clamp(BaseHearing + ((float)rng.NextDouble() - 0.5f) * 2, 5, 25),
-                BaseInfluence = Math.Clamp(BaseInfluence + ((float)rng.NextDouble() - 0.5f) * 0.5f, 0, 10),
-                MaxAge = Math.Max(500, MaxAge + rng.Next(-500, 500)),
-                Speed = M(Speed, 0.2f),
-                Fertility = M(Fertility, 0.3f),
-                ImmuneStrength = M(ImmuneStrength, 0.3f),
-                Openness = M(Openness, 0.2f),
-                Conscientiousness = M(Conscientiousness, 0.2f),
-                Extraversion = M(Extraversion, 0.2f),
-                Agreeableness = M(Agreeableness, 0.2f),
-                Neuroticism = M(Neuroticism, 0.2f),
-                Aggression = M(Aggression, 0.2f),
-                Courage = M(Courage, 0.2f),
-                KinshipBias = M(KinshipBias, 0.2f),
-                OutgroupGenerosity = M(OutgroupGenerosity, 0.1f),
-                Forgiveness = M(Forgiveness, 0.2f),
-                Vengefulness = M(Vengefulness, 0.2f),
-                SameSexAffinity = M(SameSexAffinity, 0.1f),
-                BondingDrive = M(BondingDrive, 0.2f),
-                SelfAwareness = Math.Clamp(SelfAwareness + ((float)rng.NextDouble() - 0.5f) * 0.20f, 0, 1),
-                MasculineBehavior = M(MasculineBehavior, 0.2f),
-                FeminineBehavior = M(FeminineBehavior, 0.2f),
-                Spirituality = M(Spirituality, 0.2f),
-                GeneticResistances = mutatedResistances
-            };
-        }
+        
 
         public static AgentGenome Combine(AgentGenome a, AgentGenome b, Random rng)
         {

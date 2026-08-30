@@ -16,7 +16,6 @@ namespace GenesisEngine.Systems
         public string Name;
         public float Virulence;
         public float Contagiousness;
-        public float Drain;
         public float Duration;
         public TerrainType Affinity;
         public int BirthTick;
@@ -102,7 +101,6 @@ namespace GenesisEngine.Systems
 
             p.Virulence = Math.Clamp(0.10f + virBonus + (float)rng.NextDouble() * 0.20f, 0.05f, 0.50f);
             p.Contagiousness = Math.Clamp(0.08f + contBonus + (float)rng.NextDouble() * 0.06f, 0.02f, 0.20f);
-            p.Drain = 0.02f + p.Virulence * 0.15f;
             return p;
         }
         /// <summary>
@@ -209,7 +207,8 @@ namespace GenesisEngine.Systems
                     * (1f - geneticFactor * 0.5f);
 
                 agent.Body.Health -= damage;
-                agent.Body.Energy = Math.Max(0f, agent.Body.Energy - 0.6f);
+                float energyDrain = 0.1f + (p.Virulence * 0.15f);
+                agent.Body.Energy = Math.Max(0f, agent.Body.Energy - energyDrain);
 
                 if (agent.Fear < 50f && rng.NextDouble() < 0.04f)
                     SignalSystem.EmitSignal(agent, SignalType.Help, 0.9f, 6f);
@@ -315,7 +314,6 @@ namespace GenesisEngine.Systems
                         Name = record.Name,
                         Virulence = record.CurrentVirulence,
                         Contagiousness = record.CurrentContagiousness,
-                        Drain = 0.02f + record.CurrentVirulence * 0.15f,
                         Duration = pCarrier.Duration,
                         Affinity = pCarrier.Affinity,
                         BirthTick = Simulation.Instance.TotalTicks
