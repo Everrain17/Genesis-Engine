@@ -40,13 +40,13 @@ namespace GenesisEngine.Systems
         public static void TrySpark(Simulation sim, Random rng)
         {
             if (sim.Agents.Count < 50) return;
-   
+            if (rng.NextDouble() >= SparkChance) return;
 
             // === НОВОЕ: Шанс эпидемии зависит от плотности населения ===
             // Чем больше агентов, тем выше риск (от 2% при 0 агентов до 10% при 300+ агентах)
-            float densityFactor = Math.Clamp((float)sim.Agents.Count / 300f, 0f, 1f);
-            float actualSparkChance = SparkChance + (densityFactor * 0.04f);
-            if (rng.NextDouble() >= actualSparkChance) return;
+            //float densityFactor = Math.Clamp((float)sim.Agents.Count / 300f, 0f, 1f);
+            //float actualSparkChance = SparkChance + (densityFactor * 0.04f);
+ 
             var victim = sim.Agents[rng.Next(sim.Agents.Count)];
             if (victim.Infected) return;
 

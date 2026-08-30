@@ -25,7 +25,18 @@ namespace GenesisEngine.World
         public WeatherSystem.WeatherState Weather;
         // Добавляем в Tile.cs после поля Fertility:
         // В классе Tile добавить новое свойство:
+        // После поля GroundObjects добавь:
+        public List<Corpse> Corpses = new();
 
+        // И создай класс Corpse (можно в отдельном файле или в Tile.cs):
+        public class Corpse
+        {
+            public Guid Id;
+            public float Quantity;        // "Масса" трупа (размер агента)
+            public int SpawnTick;         // Когда появился
+            public int DecayTime = 500;   // Через сколько тиков разложится
+            public bool IsDecayed => Simulation.Instance.TotalTicks - SpawnTick > DecayTime;
+        }
         /// <summary>
         /// Несущая способность тайла — сколько агентов может прокормить этот биом.
         /// Зависит от плодородия, сезона и наличия построек.

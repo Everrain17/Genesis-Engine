@@ -138,9 +138,32 @@ namespace GenesisEngine
                 Agents.AddRange(BornAgents);
                 BornAgents.Clear();
             }
-
+  
             if (TotalTicks % 100 == 0)
                 RegenerateFood();
+            // === НОВОЕ: Разложение трупов ===
+            if (TotalTicks % 100 == 0)
+            {
+                foreach (var tile in World)
+                {
+                    for (int i = tile.Corpses.Count - 1; i >= 0; i--)
+                    {
+                        var corpse = tile.Corpses[i];
+
+                        if (corpse.IsDecayed)
+                        {
+                            // Труп разложился — улучшаем фертильность
+                            tile.Fertility = Math.Min(1f, tile.Fertility + corpse.Quantity * 0.001f);
+                            tile.Corpses.RemoveAt(i);
+
+                            // Удаляем соответствующий WorldObject
+                            var corpseObj = tile.GroundObjects.FirstOrDefault(o => o.IsCorpse && o.Quantity == corpse.Quantity);
+                            if (corpseObj != null)
+                                tile.GroundObjects.Remove(corpseObj);
+                        }
+                    }
+                }
+            }
             // === v3: эпидемии ===
             if (TotalTicks % 100 == 0)
             {
@@ -209,12 +232,20 @@ namespace GenesisEngine
 
             foreach (var a in dead)
             {
-                var nearby = SpatialGrid.GetNearby(a.Position, 3);
-                CultureSystem.OnDeath(a, nearby);
-
+                // 1. Удаляем агента из симуляции
                 if (!Agents.Remove(a))
                     continue;
 
+                var tile = World[a.Position.X, a.Position.Y];
+                var nearby = SpatialGrid.GetNearby(a.Position, 3);
+
+                // 2. Культурные и когнитивные последствия смерти
+                CultureSystem.OnDeath(a, nearby);
+                KnowledgeSystem.OnAgentDeath(a.Id);
+                AdvancedCognitivePrimitives.OnAgentDeath(a.Id);
+                HigherCognitivePrimitives.OnAgentDeath(a.Id);
+
+                // 3. Статистика причин смерти
                 if (a.LastAction == "Predated")
                     TotalDiedPredator++;
                 else if (a.LastAction == "Age")
@@ -222,15 +253,13 @@ namespace GenesisEngine
                 else if (a.LastAction == "Combat")
                     TotalDiedCombat++;
                 else if (a.LastAction == "Plague")
-                    TotalDiedPlague++;  // === НОВОЕ ===
+                    TotalDiedPlague++;
                 else if (a.LastAction == "Cold")
-                    TotalDiedCold++;  // НОВОЕ
+                    TotalDiedCold++;
                 else
-                    TotalDiedHunger++;
+                    TotalDiedHunger++; // Голод или неизвестная причина
 
-                KnowledgeSystem.OnAgentDeath(a.Id);
-                AdvancedCognitivePrimitives.OnAgentDeath(a.Id);
-                HigherCognitivePrimitives.OnAgentDeath(a.Id);
+                // 4. Публикация события для логгеров и наблюдателей
                 EventBus.Publish(new SimEvent
                 {
                     Type = SimEventType.AgentDied,
@@ -240,13 +269,27 @@ namespace GenesisEngine
                     Data = a.LastAction
                 });
 
-                Tile t = World[a.Position.X, a.Position.Y];
+                // 5. Создание трупа (единый источник мяса и будущего удобрения)
+                // Чем больше размер агента, тем больше мяса
+                float meatAmount = 15f + a.Genome.Size * 5f;
 
-                t.GroundObjects.Add(new WorldObject
+                var corpse = new Corpse
+                {
+                    Id = a.Id,
+                    Quantity = meatAmount,
+                    SpawnTick = TotalTicks
+                };
+
+                // Добавляем в список трупов тайла (для последующего разложения и бонуса к фертильности)
+                tile.Corpses.Add(corpse);
+
+                // Добавляем мясо на землю как WorldObject, чтобы его могли подобрать хищники, падальщики или другие агенты
+                tile.GroundObjects.Add(new WorldObject
                 {
                     MaterialId = MaterialDB.GetFoodMaterialId(),
-                    Quantity = 3f,
-                    Position = a.Position
+                    Quantity = meatAmount,
+                    Position = a.Position,
+                    IsCorpse = true // Флаг для системы разложения
                 });
             }
 
@@ -465,40 +508,46 @@ namespace GenesisEngine
         {
             int w = World.GetLength(0);
             int h = World.GetLength(1);
+            var rng = Rng;
 
-            int herbivoresToSpawn = Math.Max(10, 30 - Creatures.Count / 2);
+            // Эмерджентный лимит: чем больше агентов, тем меньше места для дикой природы, 
+            // но экосистема старается поддерживать базовый уровень
+            int maxCreatures = Math.Max(50, 200 - Agents.Count / 2);
 
-            for (int i = 0; i < herbivoresToSpawn; i++)
+            if (Creatures.Count >= maxCreatures) return;
+
+            // Спавним новое "гнездо" или "стаю"
+            int herdsToSpawn = Math.Max(1, (maxCreatures - Creatures.Count) / 6);
+
+            for (int i = 0; i < herdsToSpawn; i++)
             {
-                var pos = new Vector2(Rng.Next(w), Rng.Next(h));
-
-                if (World[pos.X, pos.Y].IsPassable &&
-                    World[pos.X, pos.Y].Fertility > 0.2f)
+                // Ищем безопасное место с едой (высокая фертильность)
+                Vector2 spawnPos = new Vector2(0, 0);
+                int attempts = 0;
+                while (attempts < 50)
                 {
-                    Creatures.Add(new Creature(pos, Rng, CreatureSpecies.Rabbit));
+                    spawnPos = new Vector2(rng.Next(w), rng.Next(h));
+                    if (World[spawnPos.X, spawnPos.Y].IsPassable && World[spawnPos.X, spawnPos.Y].Fertility > 0.3f)
+                        break;
+                    attempts++;
                 }
-            }
 
-            if (Agents.Count > 80 &&
-                Creatures.Count(c => c.Behavior == CreatureBehavior.Predator) < 5)
-            {
-                for (int i = 0; i < 2; i++)
+                if (attempts >= 50) continue;
+
+                // Генерируем базовый геном для этой стаи
+                CreatureGenome herdBaseGenome = CreatureGenome.Random(rng);
+                Guid newHerdId = Guid.NewGuid();
+
+                // Спавним 6 особей: 3 самца, 3 самки
+                for (int j = 0; j < 6; j++)
                 {
-                    var pos = new Vector2(Rng.Next(w), Rng.Next(h));
-                    var tile = World[pos.X, pos.Y];
-
-                    if (tile.IsPassable &&
-                        (tile.Terrain == TerrainType.Forest ||
-                         tile.Terrain == TerrainType.Taiga ||
-                         tile.Terrain == TerrainType.Hill))
-                    {
-                        Creatures.Add(new Creature(pos, Rng, CreatureSpecies.Wolf));
-                    }
+                    Sex sex = j < 3 ? Sex.Male : Sex.Female;
+                    Creatures.Add(new Creature(spawnPos, rng, herdBaseGenome, newHerdId, sex));
                 }
             }
         }
-      
-     
+
+
 
         public static void Main(string[] args)
         {

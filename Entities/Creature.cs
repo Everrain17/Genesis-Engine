@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using GenesisEngine.Core;
-using GenesisEngine.Systems;
 using GenesisEngine.World;
 
 namespace GenesisEngine.Entities
@@ -9,177 +9,151 @@ namespace GenesisEngine.Entities
     public class Creature
     {
         public Guid Id;
-        public CreatureSpecies Species;
-        public CreatureBehavior Behavior;
-        public float Energy = 100, Age, MaxAge, Hunger, Fear, Aggression;
+        public Guid HerdId;          // Тег стаи/гнезда для распознавания "своих"
+        public Sex BiologicalSex;
+        public CreatureGenome Genome;
+
+        public float Energy = 100f, Hunger, Age;
         public Vector2 Position;
-        public float Size, Speed, Fertility, HerdInstinct;
-        public WeaponType AttackType = WeaponType.Fist;
+        public float MateCooldown;   // Задержка после размножения
 
-
-        public Creature(Vector2 pos, Random rng, CreatureSpecies species)
+        public Creature(Vector2 pos, Random rng, CreatureGenome baseGenome, Guid herdId, Sex sex)
         {
             byte[] guidBytes = new byte[16];
             rng.NextBytes(guidBytes);
             Id = new Guid(guidBytes);
+
             Position = pos;
-            Species = species;
+            HerdId = herdId;
+            BiologicalSex = sex;
 
-            switch (species)
-            {
-                case CreatureSpecies.Rabbit:
-                    Behavior = CreatureBehavior.Herbivore;
-                    Size = 1f;
-                    Speed = 1.5f;
-                    Fertility = 0.9f;
-                    MaxAge = 500;
-                    break;
-
-                case CreatureSpecies.Deer:
-                    Behavior = CreatureBehavior.Herbivore;
-                    Size = 3f;
-                    Speed = 1.2f;
-                    Fertility = 0.5f;
-                    MaxAge = 1500;
-                    HerdInstinct = 0.8f;
-                    break;
-
-                case CreatureSpecies.Boar:
-                    Behavior = CreatureBehavior.Herbivore;
-                    Size = 4f;
-                    Speed = 0.8f;
-                    Aggression = 0.6f;
-                    MaxAge = 2000;
-                    break;
-
-                case CreatureSpecies.Wolf:
-                    Behavior = CreatureBehavior.Predator;
-                    Size = 3f;
-                    Speed = 1.3f;
-                    Aggression = 0.8f;
-                    MaxAge = 2500;
-                    HerdInstinct = 0.9f;
-                    AttackType = WeaponType.SharpStick;
-                    break;
-
-                case CreatureSpecies.Bear:
-                    Behavior = CreatureBehavior.Predator;
-                    Size = 5f;
-                    Speed = 0.7f;
-                    Aggression = 0.9f;
-                    MaxAge = 4000;
-                    AttackType = WeaponType.StoneAxe;
-                    break;
-
-                case CreatureSpecies.Tiger:
-                    Behavior = CreatureBehavior.Predator;
-                    Size = 4f;
-                    Speed = 1.2f;
-                    Aggression = 0.85f;
-                    MaxAge = 3000;
-                    AttackType = WeaponType.StoneAxe;
-                    break;
-
-                default:
-                    Behavior = CreatureBehavior.Herbivore;
-                    Size = 2;
-                    Speed = 1;
-                    MaxAge = 2000;
-                    break;
-            }
+            // Небольшая мутация при рождении даже для первого поколения
+            Genome = baseGenome.Mutate(rng);
         }
 
         public void Update(Tile[,] world, List<Agent> agents, List<Creature> creatures)
         {
             var rng = RandomProvider.GetRandom();
-
-            Hunger += 0.05f;
             Age++;
+            Hunger += 0.04f + (Genome.Size * 0.02f); // Большие тратят больше энергии
 
-            if (Energy <= 0)
-                return;
+            if (Energy <= 0 || Age > MaxAge)
+            {
+                // === НОВОЕ: Создаём труп животного ===
+                var corpse = new Corpse
+                {
+                    Id = Id,
+                    Quantity = Genome.Size * 5f, // Чем больше животное, тем больше мяса
+                    SpawnTick = Simulation.Instance.TotalTicks
+                };
 
-            // Движение
-            if (Energy > 10 && rng.NextDouble() < 0.3f)
+                var tile = Simulation.Instance.World[Position.X, Position.Y];
+                tile.Corpses.Add(corpse);
+
+                // Добавляем мясо как WorldObject
+                tile.GroundObjects.Add(new WorldObject
+                {
+                    MaterialId = MaterialDB.GetFoodMaterialId(),
+                    Quantity = corpse.Quantity,
+                    Position = Position,
+                    IsCorpse = true
+                });
+
+                return; // Помечено на удаление внешним циклом
+            }
+
+            // 1. ПРИОРИТЕТ: Размножение (если сыт, полон сил и созрел)
+            if (Hunger < 30f && Energy > 80f && Age > Genome.MaxAge * 0.3f && MateCooldown <= 0f)
+            {
+                var mate = creatures.FirstOrDefault(c =>
+                    c != this &&
+                    c.BiologicalSex != BiologicalSex &&
+                    c.HerdId == HerdId && // Предпочитает своих
+                    c.Position.Distance(Position) <= 2f &&
+                    c.Energy > 70f && c.Hunger < 40f && c.MateCooldown <= 0f);
+
+                if (mate != null)
+                {
+                    // Эмерджентное размножение!
+                    var childGenome = CreatureGenome.Combine(this.Genome, mate.Genome, rng);
+                    var childSex = rng.NextDouble() < 0.5f ? Sex.Male : Sex.Female;
+
+                    var child = new Creature(Position, rng, childGenome, HerdId, childSex);
+                    creatures.Add(child); // Добавляем в общий список (Simulation обработает)
+
+                    Energy -= 40f;
+                    mate.Energy -= 40f;
+                    MateCooldown = Genome.MaxAge * 0.2f; // Перерыв
+                    mate.MateCooldown = Genome.MaxAge * 0.2f;
+                    return; // Пропускаем остальной апдейт в этот тик
+                }
+            }
+
+            if (MateCooldown > 0f) MateCooldown--;
+
+            // 2. Движение (случайное блуждание или движение к цели)
+            if (Energy > 10f && rng.NextDouble() < 0.4f * Genome.Speed)
             {
                 int dx = rng.Next(-1, 2);
                 int dy = rng.Next(-1, 2);
-
                 int nx = Position.X + dx;
                 int ny = Position.Y + dy;
 
-                if (nx >= 0 && nx < world.GetLength(0) &&
-                    ny >= 0 && ny < world.GetLength(1) &&
-                    world[nx, ny].IsPassable)
+                if (nx >= 0 && nx < world.GetLength(0) && ny >= 0 && ny < world.GetLength(1) && world[nx, ny].IsPassable)
                 {
                     Position = new Vector2(nx, ny);
-                    Energy -= 1;
+                    Energy -= 0.5f * Genome.Speed;
                 }
             }
 
-            if (Hunger <= 30)
-                return;
-
-            if (Behavior == CreatureBehavior.Herbivore)
+            // 3. Питание
+            if (Hunger > 20f)
             {
-                Tile tile = world[Position.X, Position.Y];
-                float food = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
-
-                if (food > 0f)
+                if (Genome.CarnivoreDrive > 0.4f) // ХИЩНИК
                 {
-                    float eaten = Math.Min(Size, food);
-                    tile.Resources[ResourceType.Food] = food - eaten;
-                    Energy = Math.Min(100f, Energy + eaten * 3f);
-                    Hunger = Math.Max(0f, Hunger - eaten * 5f);
-                }
-            }
-            else if (Behavior == CreatureBehavior.Predator)
-            {
-                bool hunted = false;
+                    // Приоритет 1: Травоядные животные (CarnivoreDrive < 0.4)
+                    var preyCreature = creatures.FirstOrDefault(c =>
+                        c != this && c.Genome.CarnivoreDrive < 0.4f && c.Position.Distance(Position) <= 1.5f && c.Energy > 0);
 
-                var nearbyAgents = SpatialGrid.GetNearby(Position, 1);
+                    // Приоритет 2: Агенты (только если очень голоден или рядом нет травоядных)
+                    var preyAgent = agents.FirstOrDefault(a =>
+                        a.Body.Health > 0 && a.Position.Distance(Position) <= 1.5f);
 
-                foreach (var a in nearbyAgents)
-                {
-                    if (a == null)
-                        continue;
-
-                    if (a.Body.Health <= 0)
-                        continue;
-
-                    if (a.Position.Distance(Position) <= 1f)
+                    if (preyCreature != null || (preyAgent != null && Hunger > 85f))
                     {
-                        a.LastAction = "Predated";
+                        if (preyCreature != null)
+                        {
+                            // Атака травоядного
+                            float damage = Genome.Size * (1f + Genome.Aggression) - preyCreature.Genome.Defense * 2f;
+                            preyCreature.Energy -= Math.Max(5f, damage * 3f);
+                            Energy = Math.Min(100f, Energy + Genome.Size * 3f);
+                            Hunger = Math.Max(0f, Hunger - 40f);
+                        }
+                        else if (preyAgent != null)
+                        {
+                            // Атака агента
+                            float damage = Genome.Size * (1f + Genome.Aggression);
+                            preyAgent.Body.Health -= damage;
+                            preyAgent.Body.Energy -= Genome.Size * 3f;
+                            preyAgent.Fear += 30f;
+                            preyAgent.LastAction = "Predated";
 
-                        float damage = Size * (2f + Aggression);
-
-                        a.Body.Health -= damage;
-                        a.Body.Energy -= Size * 4f;
-                        a.Fear += 40f;
-
-                        Energy = Math.Min(100f, Energy + Size * 4f);
-                        Hunger = Math.Max(0f, Hunger - 30f);
-
-                        hunted = true;
-                        break;
+                            Energy = Math.Min(100f, Energy + Genome.Size * 4f);
+                            Hunger = Math.Max(0f, Hunger - 50f);
+                        }
                     }
                 }
-
-                if (!hunted)
+                else // ТРАВОЯДНОЕ / ВСЕЯДНОЕ
                 {
-                    foreach (var c in creatures)
-                    {
-                        if (c == null)
-                            continue;
+                    Tile tile = world[Position.X, Position.Y];
+                    float food = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
 
-                        if (c.Behavior == CreatureBehavior.Herbivore &&
-                            c.Position.Distance(Position) <= 1f)
-                        {
-                            c.Energy -= Size * 3f;
-                            Energy = Math.Min(100f, Energy + Size * 2f);
-                            Hunger = Math.Max(0f, Hunger - 20f);
-                            break;
-                        }
+                    if (food > 0f)
+                    {
+                        float eaten = Math.Min(Genome.Size, food);
+                        tile.Resources[ResourceType.Food] = food - eaten;
+                        Energy = Math.Min(100f, Energy + eaten * 2f);
+                        Hunger = Math.Max(0f, Hunger - eaten * 4f);
                     }
                 }
             }

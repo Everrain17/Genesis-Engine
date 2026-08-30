@@ -6,8 +6,6 @@
     public enum SignalType { Alarm, Food, Come, Danger, Trade, Help, Bond, Mourn, Celebrate }
     public enum LifeStage { Infant, Child, Adolescent, Adult, Elder }
     public enum Sex { Male, Female }
-    public enum WeaponType { Fist, SharpStick, StoneAxe, Spear, Bow, BronzeSword, IronSword, Crossbow, Musket }
-    public enum CreatureSpecies { Rabbit, Deer, Boar, Bison, Elephant, Wolf, Bear, Tiger, Crocodile, Vulture, Hyena, GiantSpider }
     public enum CreatureBehavior { Herbivore, Predator, Scavenger }
     // v3: Structure — единственное, что строят агенты. Функцию несёт DominantAxis.
     // Остальные значения оставлены для совместимости/графики.
