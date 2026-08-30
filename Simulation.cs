@@ -15,7 +15,7 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v5 - DWAaAP"; //v5 - DeadliestWeather-and-AdvancePrimitives
+        public const string CodeVersion = "v6 - Animal-Rework"; //v5 - DeadliestWeather-and-AdvancePrimitives
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
