@@ -349,8 +349,20 @@ namespace GenesisEngine.World
                 {
                     Tile tile = world[x, y];
                     if (!tile.IsPassable) continue;
-                    float baseFood = tile.Fertility * 50f;
-                    tile.Resources[ResourceType.Food] = (float)Math.Round(baseFood + rng.NextDouble() * 30);
+                    float baseFood = tile.Fertility * 150f;  // Увеличили в 3 раза
+                    tile.Resources[ResourceType.Food] = (float)Math.Round(baseFood + rng.NextDouble() * 100);
+
+                    // Добавляем объекты еды на тайл
+                    if (tile.Fertility > 0.3f)
+                    {
+                        tile.GroundObjects.Add(new WorldObject
+                        {
+                            MaterialId = MaterialDB.GetFoodMaterialId(),
+                            Quantity = 50f + tile.Fertility * 100f,  // 50-150 единиц еды
+                            Position = new Vector2(tile.X, tile.Y)
+                        });
+                    }
+                   
                 }
         }
     }

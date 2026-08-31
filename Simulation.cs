@@ -15,14 +15,14 @@ namespace GenesisEngine
 {
     public class Simulation
     {
-        public const string CodeVersion = "v7 - Rework-Agent-Fertility-and-Animal-Threat"; //v5 - DeadliestWeather-and-AdvancePrimitives
+        public const string CodeVersion = "v8 - Science-Essay"; //v5 - DeadliestWeather-and-AdvancePrimitives
         public Tile[,] World;
         public List<Agent> Agents = new();
         public List<Creature> Creatures = new();
         public int TotalTicks;
         public SeasonSystem.Season CurrentSeason => SeasonSystem.GetCurrentSeason(TotalTicks);  // НОВОЕ
         public Random Rng;
-
+        public int seed = 0;
         public bool SimulationEnded = false;
         public string EndReason = "";
 
@@ -409,9 +409,18 @@ namespace GenesisEngine
                 float currentFood = tile.Resources.GetValueOrDefault(ResourceType.Food, 0f);
 
                 // Регенерация зависит от плодородия
-                float baseRegeneration = tile.Fertility * 6f;
+                float baseRegeneration = tile.Fertility * 12f;
+                // НОВОЕ: Сезонный модификатор регенерации
+                float seasonMod = SeasonSystem.GetCurrentSeason(TotalTicks) switch
+                {
+                    SeasonSystem.Season.Winter => 0.4f,      // Зимой регенерация 40% от летней
+                    SeasonSystem.Season.Autumn => 0.7f,      // Осенью 70%
+                    SeasonSystem.Season.Spring => 1.0f,       // Весной 100%
+                    SeasonSystem.Season.Summer => 1.2f,       // Летом 120%
+                    _ => 1.0f
+                };
                 float exhaustionPenalty = 1f - (tile.Exhaustion * 0.5f);
-                float regeneration = baseRegeneration * exhaustionPenalty;
+                float regeneration = baseRegeneration * exhaustionPenalty * seasonMod;
 
                 bool isFarm = tile.BuildingFunctional && tile.IsFarm;
                 if (isFarm)
@@ -468,6 +477,19 @@ namespace GenesisEngine
                         });
                     }
                 }
+                // === НОВОЕ: Весеннее восстановление после зимы ===
+                var currentSeason = SeasonSystem.GetCurrentSeason(TotalTicks);
+                if (currentSeason == SeasonSystem.Season.Spring && tile.Exhaustion > 0.3f)
+                {
+                    // Весной истощение снижается быстрее
+                    tile.Exhaustion = Math.Max(0f, tile.Exhaustion - 0.02f);
+
+                    // И плодородие восстанавливается
+                    if (tile.Fertility < 0.5f)
+                    {
+                        tile.Fertility = Math.Min(1f, tile.Fertility * 1.005f);
+                    }
+                }
             }
         }
 
@@ -513,10 +535,11 @@ namespace GenesisEngine
                     Creatures.Add(new Creature(spawnPos, rng, herdBaseGenome, newHerdId, sex));
                 }
             }
+
         }
 
 
-
+        
         public static void Main(string[] args)
         {
             bool headless = false;
@@ -617,7 +640,7 @@ namespace GenesisEngine
 
                 var sim = new Simulation();
                 sim.Initialize(120, 80, agents, seed);
-
+                sim.seed = seed;
                 // Инициализация логгеров
                 FileLogger.Init("logs", headless);
                 FileLogger.Log($"Run ID: {runId}");

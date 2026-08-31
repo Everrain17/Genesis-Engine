@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq; // <--- ОБЯЗАТЕЛЬНО ДОБАВИТЬ ЭТОТ USING
 using System.Text;
 using ClosedXML.Excel;
+using GenesisEngine.Systems;
+using GenesisEngine;
 
 namespace GenesisEngine.Systems.Analytics
 {
@@ -26,7 +28,7 @@ namespace GenesisEngine.Systems.Analytics
 
                 if (csvFiles.Length == 0) return;
 
-                string xlsxPath = Path.Combine(folder, "report.xlsx");
+                string xlsxPath = Path.Combine(folder, "report_" + "seed_" + Simulation.Instance.seed + ".xlsx");
                 using var workbook = new XLWorkbook();
 
                 foreach (var csv in csvFiles)

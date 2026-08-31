@@ -195,13 +195,13 @@ namespace GenesisEngine.Entities
                         // Пик фертильности (20% - 50% жизни): 100% базового шанса
                         ageFertilityMultiplier = 1.0f;
                     }
-                    else if (normAge >= 0.45f && normAge < 0.70f)
+                    else if (normAge >= 0.45f && normAge < 0.65f)
                     {
                         // Постепенное снижение (50% - 70% жизни): падение с 1.0 до 0.3
                         // Дает хороший запас времени для размножения в зрелом возрасте
                         ageFertilityMultiplier = 1.0f - ((normAge - 0.50f) / 0.20f) * 0.7f;
                     }
-                    else if (normAge >= 0.70f && normAge < 0.80f)
+                    else if (normAge >= 0.65f && normAge < 0.85f)
                     {
                         // "Длинный хвост" фертильности (70% - 85% жизни): падение с 0.3 до 0.0
                         // Критически важно для восстановления популяции после эпидемий!
@@ -231,7 +231,7 @@ namespace GenesisEngine.Entities
                         }
 
                         // 3. Итоговый шанс: базовая фертильность * биологический возраст * демографический переход
-                        float chance = Genome.Fertility * Genome.BondingDrive * 0.02f * ageFertilityMultiplier / (1f + civDevelopment);
+                        float chance = Genome.Fertility * Genome.BondingDrive * 0.02f * ageFertilityMultiplier / (1f + civDevelopment * 0.4f);
 
                         if (rng.NextDouble() < chance)
                         {
@@ -344,6 +344,48 @@ namespace GenesisEngine.Entities
                     currentTile.Exhaustion = Math.Min(0.9f, currentTile.Exhaustion + 0.02f);
                     LastAction = "Forage";
                     RecordAction("Forage");
+                    return;
+                }
+            }
+            // === НОВОЕ: Сбор запасов на зиму ===
+            var season = SeasonSystem.GetCurrentSeason(Simulation.Instance.TotalTicks);
+            if (season == SeasonSystem.Season.Autumn && Body.Hunger < 40f)
+            {
+                // Осенью агенты собирают еду про запас
+                var nearbyFood = currentTile.GroundObjects.FirstOrDefault(o =>
+                    o.Quantity > 2f &&
+                    MaterialDB.TryGet(o.MaterialId, out var spec) &&
+                    spec.Organic > 0.5f);
+
+                if (nearbyFood != null && Body.CanCarry(5f))
+                {
+                    float amountToStore = Math.Min(5f, nearbyFood.Quantity);
+                    if (ManipulationSystem.PickUp(this, nearbyFood, amountToStore))
+                    {
+                        LastAction = "StoreFood";
+                        RecordAction("StoreFood");
+                        // Не возвращаем, чтобы агент мог продолжить другие действия
+                    }
+                }
+            }
+
+            // Зимой агенты едят из запасов медленнее
+            if (season == SeasonSystem.Season.Winter && Body.Hunger > 50f)
+            {
+                var storedFood = Body.Inventory.FirstOrDefault(o =>
+                    MaterialDB.TryGet(o.MaterialId, out var spec) &&
+                    spec.Organic > 0.5f);
+
+                if (storedFood != null)
+                {
+                    // Зимой едим из запасов, а не ищем новую еду
+                    Body.Consume(storedFood, 0.5f);  // Едим вдвое меньше
+
+                    if (storedFood.Quantity <= 0f)
+                        Body.Inventory.Remove(storedFood);
+
+                    LastAction = "ConsumeStored";
+                    RecordAction("ConsumeStored");
                     return;
                 }
             }
