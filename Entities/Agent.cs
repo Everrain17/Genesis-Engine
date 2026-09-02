@@ -63,10 +63,38 @@ namespace GenesisEngine.Entities
         public void Update(Tile[,] world, List<Agent> agents, List<Creature> creatures)
         {
             Age++;
-
+            Tile currentTile = world[Position.X, Position.Y];
             if (Age > MaxAge)
             {
-                Body.Health -= 1.5f;
+                // 1. Расчет "глубины" старения (насколько агент старше своего генетического предела)
+                float ageOverrun = Age - MaxAge;
+
+                // 2. Базовый урон растет линейно: чем дольше живет сверх нормы, тем быстрее разрушается организм.
+                // Например: при превышении на 100 тиков урон будет 0.5 + 1.0 = 1.5 за тик.
+                float baseDecay = 0.5f + (ageOverrun * 0.01f);
+
+                // 3. Проверка на наличие медицины/лечения (используем ту же логику, что и для вирусов)
+                float medicineMitigation = 0f;
+                currentTile = Simulation.Instance.GetTile(Position);
+
+                if (currentTile != null && currentTile.BuildingFunctional)
+                {
+                    if (currentTile.Building == BuildingType.Temple || currentTile.DominantAxis == "healing")
+                    {
+                        medicineMitigation += 0.3f + currentTile.BuildingQuality * 0.1f;
+                    }
+                }
+
+                // Добавляем бонус от накопленных знаний о лечении
+                medicineMitigation += KnowledgeSystem.MethodBuff(this, "healing") * 0.5f;
+
+                // Ограничиваем: медицина может снизить урон от старости максимум на 40%, но не сделать агента бессмертным
+                medicineMitigation = Math.Clamp(medicineMitigation, 0f, 0.4f);
+
+                // 4. Итоговый урон с учетом достижений цивилизации
+                float finalDecay = baseDecay * (1f - medicineMitigation);
+
+                Body.Health -= finalDecay;
                 LastAction = "Age";
             }
 
@@ -97,7 +125,7 @@ namespace GenesisEngine.Entities
                 return;
 
             var rng = RandomProvider.GetRandom();
-            Tile currentTile = world[Position.X, Position.Y];
+           
             // Эмерджентное наблюдение за влиянием среды на агента (раз в 50 тиков)
             if (Simulation.Instance.TotalTicks - LastEnvObservationTick > 50)
             {
@@ -159,113 +187,155 @@ namespace GenesisEngine.Entities
             if (AgentEmergence.HandleSignals(this, rng))
                 return;
 
-            // 1. Размножение
-            // 1. Размножение
-            // 1. Размножение
-            if (Body.Hunger < 30 && Body.Energy > 50 && Genome.BondingDrive > 0.3f)
+            // ==========================================
+            // 1. РАЗМНОЖЕНИЕ (Чистая эмерджентность на множителях)
+            // ==========================================
+
+            // 1. Получаем данные о цивилизации для бонуса качества жизни
+            float civPop = 0f;
+            float qolBonus = 1.0f;
+
+            if (!string.IsNullOrEmpty(CivilizationId))
             {
-                var partner = nearby.FirstOrDefault(a =>
-                    a != null &&
-                    a.Id != Id &&
-                    a.Body.Health > 0f &&
-                    a.BiologicalSex != BiologicalSex &&
-                    a.Position.Distance(Position) <= 2 &&
-                    a.Body.Hunger < 40 &&
-                    a.Body.Energy > 40);
-
-                if (partner != null)
+                var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == CivilizationId);
+                if (civ != null)
                 {
-                    // === НОВОЕ: Реалистичная биологическая кривая фертильности ===
-                    // Фертильность определяется по женскому агенту в паре, так как у мужчин нет резкого обрыва (менопаузы)
-                    Agent female = this.BiologicalSex == Sex.Female ? this : partner;
+                    civPop = civ.Population;
+                    float edu = Math.Min(1f, civ.EducationLevel);
+                    qolBonus = 1.0f + (edu * 0.2f); // Максимум +20% за развитое общество
+                }
+            }
 
-                    // Нормализованный возраст: 0.0 = рождение, 1.0 = MaxAge
+            // 2. МНОЖИТЕЛЬ ГОЛОДА (Плавная кривая от 0 до 100)
+            float hungerMultiplier;
+            if (Body.Hunger <= 20f)
+            {
+                hungerMultiplier = 1.0f; // Идеальное состояние
+            }
+            else if (Body.Hunger <= 60f)
+            {
+                // Плавное снижение с 1.0 до 0.3
+                hungerMultiplier = 1.0f - ((Body.Hunger - 20f) / 40f) * 0.7f;
+            }
+            else
+            {
+                // Крутое снижение с 0.3 до 0.01 при голоде 100 (почти ноль, но не жесткий запрет)
+                hungerMultiplier = 0.3f - ((Body.Hunger - 60f) / 40f) * 0.29f;
+            }
 
-                    float normAge = female.Age / female.MaxAge;
-                    float ageFertilityMultiplier = 0f;
+            // 3. МНОЖИТЕЛЬ ЭНЕРГИИ (Плавная кривая от 0 до 100)
+            float energyMultiplier;
+            if (Body.Energy >= 80f)
+            {
+                energyMultiplier = 1.0f; // Полон сил
+            }
+            else if (Body.Energy >= 40f)
+            {
+                // Плавное снижение с 1.0 до 0.3
+                energyMultiplier = 1.0f - ((80f - Body.Energy) / 40f) * 0.7f;
+            }
+            else
+            {
+                // Крутое снижение с 0.3 до 0.01 при энергии 0 (истощение)
+                energyMultiplier = 0.3f - ((40f - Body.Energy) / 40f) * 0.29f;
+            }
 
-                    if (normAge >= 0.15f && normAge < 0.25f)
-                    {
-                        // Ранняя фертильность (10% - 20% жизни): плавный разгон от 0 до 1.0
-                        // (Например, при MaxAge=4000, это возраст 400-800 тиков)
-                        ageFertilityMultiplier = (normAge - 0.10f) / 0.10f;
-                    }
-                    else if (normAge >= 0.25f && normAge < 0.45f)
-                    {
-                        // Пик фертильности (20% - 50% жизни): 100% базового шанса
-                        ageFertilityMultiplier = 1.0f;
-                    }
-                    else if (normAge >= 0.45f && normAge < 0.65f)
-                    {
-                        // Постепенное снижение (50% - 70% жизни): падение с 1.0 до 0.3
-                        // Дает хороший запас времени для размножения в зрелом возрасте
-                        ageFertilityMultiplier = 1.0f - ((normAge - 0.50f) / 0.20f) * 0.7f;
-                    }
-                    else if (normAge >= 0.65f && normAge < 0.85f)
-                    {
-                        // "Длинный хвост" фертильности (70% - 85% жизни): падение с 0.3 до 0.0
-                        // Критически важно для восстановления популяции после эпидемий!
-                        ageFertilityMultiplier = 0.3f - ((normAge - 0.70f) / 0.15f) * 0.3f;
-                    }
-                    else
-                    {
-                        // Слишком юные (<10%) или глубокая старость (>85%)
-                        ageFertilityMultiplier = 0f;
-                    }
+            // 4. Поиск партнера (Минимальные требования: живой и другой пол. 
+            // Его состояние тоже учтется в общей вероятности, но мы не блокируем поиск жестко)
+            var partner = SpatialGrid.GetNearby(Position, 3).FirstOrDefault(a =>
+                a != null &&
+                a.Id != Id &&
+                a.Body.Health > 0f && // Единственное жесткое требование: партнер должен быть жив
+                a.BiologicalSex != BiologicalSex &&
+                a.Position.Distance(Position) <= 3);
 
-                    // Если биологический возраст не позволяет, просто пропускаем этот тик (не прерываем весь Update)
-                    if (ageFertilityMultiplier > 0f)
+            if (partner != null)
+            {
+                Agent female = this.BiologicalSex == Sex.Female ? this : partner;
+                float normAge = female.Age / female.MaxAge;
+                float ageFertilityMultiplier = 0f;
+
+                // 5. МНОЖИТЕЛЬ ВОЗРАСТА (Биологические рамки)
+                if (normAge < 0.25f)
+                {
+                    ageFertilityMultiplier = 0f; // Слишком юные
+                }
+                else if (normAge < 0.65f)
+                {
+                    ageFertilityMultiplier = 1.0f; // Пик фертильности
+                }
+                else if (normAge < 0.85f)
+                {
+                    // Плавное падение с 1.0 до 0.1
+                    ageFertilityMultiplier = 1.0f - ((normAge - 0.65f) / 0.20f) * 0.9f;
+                }
+                else
+                {
+                    ageFertilityMultiplier = 0.1f; // Старше 85%: всегда 10% от нормы
+                }
+
+                if (ageFertilityMultiplier > 0f)
+                {
+                    // 6. МНОЖИТЕЛЬ НАСЕЛЕНИЯ (Мягкий потолок, чтобы не было взрыва)
+                    float popMultiplier = 1.0f;
+                    if (civPop > 0f)
                     {
-                        // 2. Демографический переход (развитие цивилизации снижает рождаемость)
-                        float civDevelopment = 1f;
-                        if (!string.IsNullOrEmpty(CivilizationId))
+                        if (civPop <= 300f)
                         {
-                            var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == CivilizationId);
-                            if (civ != null)
-                            {
-                                float educationIndex = civ.EducationLevel;
-                                float toolIndex = civ.AvgToolHardness;
-                                float institutionIndex = Math.Min(1f, civ.EmergentStructuresCount / 20f);
-                                civDevelopment = (educationIndex + toolIndex + institutionIndex) / 3f;
-                            }
+                            popMultiplier = 1.0f - (civPop / 600f); // Снижение с 1.0 до 0.5
                         }
-
-                        // 3. Итоговый шанс: базовая фертильность * биологический возраст * демографический переход
-                        float chance = Genome.Fertility * Genome.BondingDrive * 0.02f * ageFertilityMultiplier / (1f + civDevelopment * 0.4f);
-
-                        if (rng.NextDouble() < chance)
+                        else if (civPop <= 600f)
                         {
-                            var mother = BiologicalSex == Sex.Female ? this : partner;
-                            var father = BiologicalSex == Sex.Male ? this : partner;
-
-                            string childCivId = "";
-                            if (!string.IsNullOrEmpty(mother.CivilizationId) && mother.CivilizationId == partner.CivilizationId)
-                                childCivId = mother.CivilizationId;
-                            else if (!string.IsNullOrEmpty(mother.CivilizationId))
-                                childCivId = mother.CivilizationId;
-                            else if (!string.IsNullOrEmpty(partner.CivilizationId))
-                                childCivId = partner.CivilizationId;
-
-                            var child = new Agent(Position, rng, Simulation.Instance.TotalTicks, Math.Max(Generation, partner.Generation) + 1)
-                            {
-                                Genome = AgentGenome.Combine(mother.Genome, father.Genome, rng),
-                                MotherId = mother.Id,
-                                FatherId = father.Id,
-                                CivilizationId = childCivId
-                            };
-
-                            KnowledgeSystem.InheritFromParents(child, mother, father);
-                            Simulation.Instance.BornAgents.Add(child);
-                            Simulation.Instance.TotalBorn++;
-                            ChildrenIds.Add(child.Id);
-
-                            Body.Energy -= 25f;
-                            partner.Body.Energy -= 25f;
-                            Loneliness = 0;
-
-                            if (BondedPartner == null)
-                                BondedPartner = partner.Id;
+                            popMultiplier = 0.5f - ((civPop - 300f) / 300f) * 0.25f; // Снижение до 0.25
                         }
+                        else
+                        {
+                            popMultiplier = 0.25f; // Жесткий пол на 25% (никогда не 0)
+                        }
+                    }
+
+                    // 7. ИТОГОВЫЙ РАСЧЕТ ШАНСА
+                    // Все множители перемножаются. Если голод 90 (множитель 0.01) и энергия 10 (множитель 0.01),
+                    // итоговый шанс умножится на 0.0001, сделав размножение статистически невозможным, 
+                    // но без единой строки кода "if (голод > X) запрети".
+                    float baseChance = 0.015f; // Чуть повысили базовый шанс, так как множители теперь честно его режут
+
+                    float chance = Genome.Fertility * Genome.BondingDrive * baseChance
+                        * ageFertilityMultiplier
+                        * hungerMultiplier
+                        * energyMultiplier
+                        * qolBonus
+                        * popMultiplier;
+
+                    // 8. БРОСОК КУБИКА
+                    if (rng.NextDouble() < chance)
+                    {
+                        var mother = BiologicalSex == Sex.Female ? this : partner;
+                        var father = BiologicalSex == Sex.Male ? this : partner;
+
+                        var child = new Agent(Position, rng, Simulation.Instance.TotalTicks, Math.Max(Generation, partner.Generation) + 1)
+                        {
+                            Genome = AgentGenome.Combine(mother.Genome, father.Genome, rng),
+                            MotherId = mother.Id,
+                            FatherId = father.Id,
+                            CivilizationId = CivilizationId
+                        };
+
+                        KnowledgeSystem.InheritFromParents(child, mother, father);
+                        Simulation.Instance.BornAgents.Add(child);
+                        Simulation.Instance.TotalBorn++;
+                        ChildrenIds.Add(child.Id);
+
+                        Body.Energy -= 25f;
+                        partner.Body.Energy -= 25f;
+                        Loneliness = 0;
+
+                        if (BondedPartner == null)
+                            BondedPartner = partner.Id;
+
+                        LastAction = "Reproduce";
+                        RecordAction("Reproduce");
+                        return; // Завершаем тик
                     }
                 }
             }
@@ -508,13 +578,51 @@ namespace GenesisEngine.Entities
                 return;
 
             // 10. Движение
+            // 10. Движение
             LastAction = "Move";
+
+            // === НОВОЕ: Проверка плотности перед движением ===
+            // Если в текущей позиции слишком много агентов, ищем менее населённое место
+            int currentDensity = SpatialGrid.GetNearby(Position, 2).Count;
+            bool shouldRelocate = currentDensity > 40; // Если больше 40 агентов рядом
 
             int dx = rng.Next(-1, 2);
             int dy = rng.Next(-1, 2);
 
             if (dx == 0 && dy == 0)
                 dx = 1;
+
+            // Если нужно расселиться, двигаемся в сторону наименьшей плотности
+            if (shouldRelocate && Genome.SelfAwareness > 0.4f)
+            {
+                Vector2 bestDirection = Position;
+                int minDensity = int.MaxValue;
+
+                // Проверяем 8 направлений
+                for (int checkDx = -1; checkDx <= 1; checkDx++)
+                {
+                    for (int checkDy = -1; checkDy <= 1; checkDy++)
+                    {
+                        if (checkDx == 0 && checkDy == 0) continue;
+
+                        int newX = Position.X + checkDx;
+                        int newY = Position.Y + checkDy;
+
+                        if (newX >= 0 && newX < world.GetLength(0) && newY >= 0 && newY < world.GetLength(1))
+                        {
+                            int density = SpatialGrid.GetNearby(new Vector2(newX, newY), 2).Count;
+                            if (density < minDensity)
+                            {
+                                minDensity = density;
+                                bestDirection = new Vector2(newX, newY);
+                            }
+                        }
+                    }
+                }
+
+                dx = (int)(bestDirection.X - Position.X);
+                dy = (int)(bestDirection.Y - Position.Y);
+            }
 
             int nx = Position.X + dx;
             int ny = Position.Y + dy;

@@ -42,7 +42,7 @@ namespace GenesisEngine.Entities
                 BaseVision = 5f + (float)rng.NextDouble() * 2 - 1,
                 BaseHearing = 10f + (float)rng.NextDouble() * 4 - 2,
                 BaseInfluence = 1f + (float)rng.NextDouble(),
-                MaxAge = 2000 + rng.Next(3000),
+                MaxAge = 1500 + rng.Next(1000),
                 Speed = 0.5f + (float)rng.NextDouble() * 0.5f,
                 Fertility = 0.3f + (float)rng.NextDouble() * 0.4f,
                 ImmuneStrength = 0.5f + (float)rng.NextDouble() * 0.5f,

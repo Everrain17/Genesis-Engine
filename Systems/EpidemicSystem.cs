@@ -12,7 +12,7 @@ namespace GenesisEngine.Systems
     public class Pathogen
     {
         public string Id;
-        public string Type;        // тип болезни, привязан к биому (базовый)
+        public string Type;
         public string Name;
         public float Virulence;
         public float Contagiousness;
@@ -21,6 +21,9 @@ namespace GenesisEngine.Systems
         public int BirthTick;
         public int TotalInfected;
         public int TotalDied;
+
+        // === НОВОЕ: Отслеживаем, какие гены мутировал этот штамм ===
+        public Dictionary<string, int> MutatedGenes = new();
     }
 
     public static class EpidemicSystem
@@ -33,46 +36,32 @@ namespace GenesisEngine.Systems
         public static Pathogen GetPathogen(string id) =>
             string.IsNullOrEmpty(id) ? null : ActivePathogens.GetValueOrDefault(id);
 
-        // ============================================================
-        // СПАВН
-        // ============================================================
-        public static void TrySpark(Simulation sim, Random rng)
+
+        /// <summary>
+        /// Рассчитывает множитель вирулентности в зависимости от температуры.
+        /// 0.0 = экстремальный холод, 1.0 = экстремальная жара.
+        /// Идеальное окно для вируса: от 0.3 до 0.7.
+        /// </summary>
+        private static float GetTemperatureVirulenceMultiplier(float normalizedTemperature)
         {
-            if (sim.Agents.Count < 50) return;
-            if (rng.NextDouble() >= SparkChance) return;
-
-            // === НОВОЕ: Шанс эпидемии зависит от плотности населения ===
-            // Чем больше агентов, тем выше риск (от 2% при 0 агентов до 10% при 300+ агентах)
-            //float densityFactor = Math.Clamp((float)sim.Agents.Count / 300f, 0f, 1f);
-            //float actualSparkChance = SparkChance + (densityFactor * 0.04f);
- 
-            var victim = sim.Agents[rng.Next(sim.Agents.Count)];
-            if (victim.Infected) return;
-
-            var terrain = sim.World[victim.Position.X, victim.Position.Y].Terrain;
-            var p = GeneratePathogen(terrain, rng);
-
-            ActivePathogens[p.Id] = p;
-            PathogenTracker.RegisterPathogen(p.Id, p.Name, null, p.Virulence, p.Contagiousness, sim.TotalTicks);
-
-            Infect(victim, p);
-
-            FileLogger.Log(
-                $"[TICK {sim.TotalTicks}] PATHOGEN '{p.Name}' ({p.Type}) emerged in {terrain}: " +
-                $"vir={p.Virulence:F2}, cont={p.Contagiousness:F2}",
-                FileLogger.LogLevel.Death);
-
-            EventBus.Publish(new SimEvent
+            if (normalizedTemperature < 0.3f)
             {
-                Type = SimEventType.PlagueStarted,
-                Tick = sim.TotalTicks,
-                Actor = victim,
-                Position = victim.Position,
-                Data = p.Name
-            });
+                // Плавное падение от 0.0 (при 0.0) до 1.0 (при 0.3)
+                return normalizedTemperature / 0.3f;
+            }
+            else if (normalizedTemperature > 0.7f)
+            {
+                // Плавное падение от 1.0 (при 0.7) до 0.0 (при 1.0)
+                return (1.0f - normalizedTemperature) / 0.3f;
+            }
+            else
+            {
+                // Идеальные условия (0.3 - 0.7): множитель 100%
+                return 1.0f;
+            }
         }
 
-        private static Pathogen GeneratePathogen(TerrainType terrain, Random rng)
+        private static Pathogen GeneratePathogen(TerrainType terrain, Random rng, float currentTemp)
         {
             string type = terrain switch
             {
@@ -99,56 +88,126 @@ namespace GenesisEngine.Systems
             float contBonus = (terrain == TerrainType.Swamp || terrain == TerrainType.Forest) ? 0.05f : 0f;
             float virBonus = (terrain == TerrainType.Desert || terrain == TerrainType.Tundra || terrain == TerrainType.IcePeak) ? 0.10f : 0f;
 
-            p.Virulence = Math.Clamp(0.10f + virBonus + (float)rng.NextDouble() * 0.20f, 0.05f, 0.50f);
-            p.Contagiousness = Math.Clamp(0.08f + contBonus + (float)rng.NextDouble() * 0.06f, 0.02f, 0.20f);
+            float baseVirulence = 0.10f + virBonus + (float)rng.NextDouble() * 0.20f;
+            float baseContagiousness = 0.08f + contBonus + (float)rng.NextDouble() * 0.06f;
+
+            // === ИСПРАВЛЕНИЕ: Применяем температурный множитель к характеристикам вируса ===
+            float tempMultiplier = GetTemperatureVirulenceMultiplier(currentTemp);
+
+            // Вирулентность и заразность падают, если температура выходит за пределы 0.3-0.7
+            p.Virulence = Math.Clamp(baseVirulence * tempMultiplier, 0.02f, 0.50f);
+            p.Contagiousness = Math.Clamp(baseContagiousness * tempMultiplier, 0.01f, 0.20f);
+
             return p;
         }
+        // ============================================================
+        // СПАВН
+        // ============================================================
+        public static void TrySpark(Simulation sim, Random rng)
+        {
+            if (sim.Agents.Count < 50) return;
+
+            var victim = sim.Agents[rng.Next(sim.Agents.Count)];
+            if (victim.Infected) return;
+
+            var tile = sim.World[victim.Position.X, victim.Position.Y];
+            var terrain = tile.Terrain;
+            var currentSeason = SeasonSystem.GetCurrentSeason(sim.TotalTicks);
+
+            // 1. ОПРЕДЕЛЯЕМ ТЕМПЕРАТУРУ (0.0 - 1.0)
+            // ВАЖНО: Если у вас в Tile или SeasonSystem есть реальная переменная температуры, 
+            // замените эту строку на: float currentTemp = tile.Temperature;
+            float currentTemp = 0.5f;
+            float seasonalVariance = (float)rng.NextDouble() * 0.4f - 0.2f; // Случайное отклонение ±0.2
+
+            switch (currentSeason)
+            {
+                case SeasonSystem.Season.Winter:
+                    currentTemp = Math.Clamp(0.1f + seasonalVariance, 0.0f, 1.0f); break; // Холодно (0.0 - 0.2)
+                case SeasonSystem.Season.Spring:
+                    currentTemp = Math.Clamp(0.4f + seasonalVariance, 0.0f, 1.0f); break; // Прохладно (0.2 - 0.6)
+                case SeasonSystem.Season.Summer:
+                    currentTemp = Math.Clamp(0.8f + (seasonalVariance * 0.5f), 0.0f, 1.0f); break; // Жарко (0.7 - 0.9)
+                case SeasonSystem.Season.Autumn:
+                    currentTemp = Math.Clamp(0.5f + seasonalVariance, 0.0f, 1.0f); break; // Может быть и 0.3, и 0.7
+            }
+
+            // 2. ГИБРИДНЫЙ РАСЧЕТ ШАНСА: Температура + Жесткий штраф Зимы
+            float tempMultiplier = GetTemperatureVirulenceMultiplier(currentTemp);
+            float actualSparkChance = SparkChance * tempMultiplier;
+
+            if (currentSeason == SeasonSystem.Season.Winter)
+            {
+                // Зимой шанс зарождения новой эпидемии дополнительно падает в 5 раз
+                actualSparkChance *= 0.2f;
+            }
+
+            if (rng.NextDouble() >= actualSparkChance) return;
+
+            // 3. Генерируем вирус с учетом текущей температуры
+            var p = GeneratePathogen(terrain, rng, currentTemp);
+
+            ActivePathogens[p.Id] = p;
+            PathogenTracker.RegisterPathogen(p.Id, p.Name, null, p.Virulence, p.Contagiousness, sim.TotalTicks);
+
+            Infect(victim, p);
+
+            FileLogger.Log(
+                $"[TICK {sim.TotalTicks}] PATHOGEN '{p.Name}' ({p.Type}) emerged in {terrain} (Season: {currentSeason}, Temp: {currentTemp:F2}): " +
+                $"vir={p.Virulence:F2}, cont={p.Contagiousness:F2}",
+                FileLogger.LogLevel.Death);
+
+            EventBus.Publish(new SimEvent
+            {
+                Type = SimEventType.PlagueStarted,
+                Tick = sim.TotalTicks,
+                Actor = victim,
+                Position = victim.Position,
+                Data = p.Name
+            });
+        }
+
+
         /// <summary>
         /// Вирус случайно мутирует один ген агента при выздоровлении.
-        /// Эмерджентная адаптация: агенты сами выводят популяцию из кризиса через поколения.
+        /// Эмерджентная адаптация: происходит РЕДКО, чтобы не вызывать деградацию популяции.
         /// </summary>
-        private static void MutateRandomGene(Agent agent, Random rng)
+        private static void MutateRandomGene(Agent agent, Pathogen p, Random rng)
         {
-            // Список всех генов, которые вирус может изменить
+            // === ИСПРАВЛЕНИЕ 1: Мутация происходит только в 10% случаев при выздоровлении ===
+            // (Раньше было 100%, что быстро "ломало" генофонд)
+            if (rng.NextDouble() > 0.10f) return;
+
             string[] genes = { "SelfAwareness", "Aggression", "Openness", "Agreeableness",
                        "Conscientiousness", "Extraversion", "Fertility", "ImmuneStrength" };
 
-            // Выбираем случайный ген
             string targetGene = genes[rng.Next(genes.Length)];
 
-            // Случайное изменение: -0.1f или +0.1f
-            float change = rng.NextDouble() < 0.5f ? -0.1f : 0.1f;
+            // === ИСПРАВЛЕНИЕ 2: Сила мутации снижена с 0.1f до 0.05f ===
+            // Это предотвращает резкое "тупение" или бесплодие агентов
+            float change = rng.NextDouble() < 0.5f ? -0.05f : 0.05f;
 
-            // Применяем изменение
             switch (targetGene)
             {
-                case "SelfAwareness":
-                    agent.Genome.SelfAwareness = Math.Clamp(agent.Genome.SelfAwareness + change, 0f, 1f);
-                    break;
-                case "Aggression":
-                    agent.Genome.Aggression = Math.Clamp(agent.Genome.Aggression + change, 0f, 1f);
-                    break;
-                case "Openness":
-                    agent.Genome.Openness = Math.Clamp(agent.Genome.Openness + change, 0f, 1f);
-                    break;
-                case "Agreeableness":
-                    agent.Genome.Agreeableness = Math.Clamp(agent.Genome.Agreeableness + change, 0f, 1f);
-                    break;
-                case "Conscientiousness":
-                    agent.Genome.Conscientiousness = Math.Clamp(agent.Genome.Conscientiousness + change, 0f, 1f);
-                    break;
-                case "Extraversion":
-                    agent.Genome.Extraversion = Math.Clamp(agent.Genome.Extraversion + change, 0f, 1f);
-                    break;
-                case "Fertility":
-                    agent.Genome.Fertility = Math.Clamp(agent.Genome.Fertility + change, 0f, 1f);
-                    break;
-                case "ImmuneStrength":
-                    agent.Genome.ImmuneStrength = Math.Clamp(agent.Genome.ImmuneStrength + change, 0f, 1f);
-                    break;
+                case "SelfAwareness": agent.Genome.SelfAwareness = Math.Clamp(agent.Genome.SelfAwareness + change, 0f, 1f); break;
+                case "Aggression": agent.Genome.Aggression = Math.Clamp(agent.Genome.Aggression + change, 0f, 1f); break;
+                case "Openness": agent.Genome.Openness = Math.Clamp(agent.Genome.Openness + change, 0f, 1f); break;
+                case "Agreeableness": agent.Genome.Agreeableness = Math.Clamp(agent.Genome.Agreeableness + change, 0f, 1f); break;
+                case "Conscientiousness": agent.Genome.Conscientiousness = Math.Clamp(agent.Genome.Conscientiousness + change, 0f, 1f); break;
+                case "Extraversion": agent.Genome.Extraversion = Math.Clamp(agent.Genome.Extraversion + change, 0f, 1f); break;
+                case "Fertility": agent.Genome.Fertility = Math.Clamp(agent.Genome.Fertility + change, 0f, 1f); break;
+                case "ImmuneStrength": agent.Genome.ImmuneStrength = Math.Clamp(agent.Genome.ImmuneStrength + change, 0f, 1f); break;
             }
 
-            FileLogger.Log($"[TICK {Simulation.Instance.TotalTicks}] VIRAL MUTATION: Agent {agent.Id} gene '{targetGene}' changed by {change:+0.0;-0.0}", FileLogger.LogLevel.Info);
+            // === НОВОЕ: Записываем, какой ген мутировал этот конкретный штамм ===
+            if (!p.MutatedGenes.ContainsKey(targetGene)) p.MutatedGenes[targetGene] = 0;
+            p.MutatedGenes[targetGene]++;
+            PathogenTracker.RecordGeneMutation(p.Id, targetGene);
+            // Логируем только если это значимое событие (чтобы не спамить лог)
+            if (p.MutatedGenes[targetGene] % 50 == 0)
+            {
+                FileLogger.Log($"[TICK {Simulation.Instance.TotalTicks}] STRAIN '{p.Name}' frequently mutates '{targetGene}' (Count: {p.MutatedGenes[targetGene]})", FileLogger.LogLevel.Info);
+            }
         }
         public static void Infect(Agent agent, Pathogen p)
         {
@@ -190,29 +249,44 @@ namespace GenesisEngine.Systems
             if (agent.Infected)
             {
                 var p = GetPathogen(agent.InfectedWith);
-                if (p == null) { agent.Infected = false; agent.InfectedWith = null; return; }
+                if (p == null)
+                {
+                    agent.Infected = false;
+                    agent.InfectedWith = null;
+                    return;
+                }
 
                 agent.InfectionTimer += 1f;
 
                 float biomeMul = (tile != null && tile.Terrain == p.Affinity) ? 1.5f : 1f;
+
+                // MedicineLevel теперь учитывает и локацию (хоспис под ногами), и общее кол-во хосписов у цивилизации
                 float medicine = MedicineLevel(agent, tile);
                 float specificImmunity = agent.PathogenImmunity.GetValueOrDefault(p.Type, 0f);
-
                 bool hasGeneticResistance = agent.Genome.GeneticResistances.Contains(p.Type);
                 float geneticFactor = hasGeneticResistance ? 0.5f : 0f;
 
+                // 1. УРОН ЗДОРОВЬЮ: Медицина чуть-чуть помогает, но не спасает от фатального исхода
                 float damage = p.Virulence * 0.1f * biomeMul
-                    * (1f - medicine * 0.6f)
+                    * (1f - medicine * 0.3f) // Медицина снижает урон максимум на 24% (при medicine=0.8)
                     * (1f - specificImmunity * 0.5f)
                     * (1f - geneticFactor * 0.5f);
 
                 agent.Body.Health -= damage;
-                float energyDrain = 0.05f + (p.Virulence * 0.15f);
+
+                // 2. ПОТЕРЯ ЭНЕРГИИ: ЗДЕСЬ ГЛАВНАЯ РАБОТА ХОСПИСОВ!
+                // Базовая потеря энергии от болезни
+                float baseEnergyDrain = 0.05f + (p.Virulence * 0.15f);
+
+                // Хосписы снижают потерю энергии максимум на 50%. 
+                // Даже при идеальной медицине агент потеряет половину энергии, но не упадет в ноль мгновенно.
+                float energyDrain = baseEnergyDrain * (1f - medicine * 0.5f);
                 agent.Body.Energy = Math.Max(0f, agent.Body.Energy - energyDrain);
 
                 if (agent.Fear < 50f && rng.NextDouble() < 0.04f)
                     SignalSystem.EmitSignal(agent, SignalType.Help, 0.9f, 6f);
 
+                // Смерть от потери здоровья (если вирус слишком сильно бьет)
                 if (agent.Body.Health <= 0f)
                 {
                     agent.LastAction = "Plague";
@@ -220,12 +294,14 @@ namespace GenesisEngine.Systems
                     return;
                 }
 
+                // 3. РОЛЛ НА СМЕРТЬ В КОНЦЕ БОЛЕЗНИ (Фатализм)
                 if (agent.InfectionTimer >= p.Duration)
                 {
-                    float lethal = p.Virulence
-                        * (1f - agent.Genome.ImmuneStrength * 0.4f)
-                        * (1f - medicine * 0.5f)
-                        * (1f - specificImmunity * 0.3f)
+                    // ВАЖНО: Медицина НЕ влияет на этот шанс! 
+                    // Спасает только врожденный иммунитет (ImmuneStrength), специфический иммунитет и генетика.
+                    float lethal = p.Virulence * 0.5f
+                        * (1f - agent.Genome.ImmuneStrength * 0.5f)
+                        * (1f - specificImmunity * 0.4f)
                         * (1f - geneticFactor * 0.5f);
 
                     if (rng.NextDouble() < lethal)
@@ -236,16 +312,20 @@ namespace GenesisEngine.Systems
                     }
                     else
                     {
+                        // Выздоровление
                         agent.Infected = false;
                         agent.InfectedWith = null;
                         PathogenTracker.RecordRecovery(p.Id);
 
+                        // Приобретенный иммунитет к этому типу вируса (и его штаммам)
                         float current = agent.PathogenImmunity.GetValueOrDefault(p.Type, 0f);
                         agent.PathogenImmunity[p.Type] = Math.Min(0.9f, current + 0.3f);
 
+                        // Счетчик выживаний для генетической ассимиляции
                         int survivals = agent.PathogenSurvivals.GetValueOrDefault(p.Type, 0) + 1;
                         agent.PathogenSurvivals[p.Type] = survivals;
 
+                        // Генетическая ассимиляция (резистентность)
                         if (!hasGeneticResistance)
                         {
                             float assimilationChance = 1f - MathF.Pow(0.5f, survivals);
@@ -257,9 +337,10 @@ namespace GenesisEngine.Systems
                             }
                         }
 
-                        // === НОВОЕ: Вирус мутирует случайный ген ===
-                        MutateRandomGene(agent, rng);
+                        // === НОВОЕ: Вирус мутирует случайный ген (с малым шансом 10%) ===
+                        MutateRandomGene(agent, p, rng);
 
+                        // Восстановление после болезни
                         agent.Body.Health = Math.Min(100f, agent.Body.Health + 15f);
                         agent.Fear = Math.Max(0f, agent.Fear - 20f);
                     }
@@ -329,12 +410,29 @@ namespace GenesisEngine.Systems
         private static float MedicineLevel(Agent agent, Tile tile)
         {
             float medicine = 0f;
-            if (tile != null && tile.BuildingFunctional)
+
+            // 1. ЛОКАЛЬНЫЙ БАФФ: Агент физически находится в хосписе/храме
+            if (tile != null && tile.BuildingFunctional && tile.DominantAxis == "healing")
             {
-                if (tile.Building == BuildingType.Temple || tile.DominantAxis == "healing")
-                    medicine += 0.3f + tile.BuildingQuality * 0.1f;
+                medicine += 0.3f + tile.BuildingQuality * 0.15f;
             }
-            medicine += KnowledgeSystem.MethodBuff(agent, "healing") * 0.5f;
+
+            // 2. ГЛОБАЛЬНЫЙ БАФФ: Сеть хосписов цивилизации
+            if (!string.IsNullOrEmpty(agent.CivilizationId))
+            {
+                var civ = Simulation.activeCivs?.FirstOrDefault(c => c.Id == agent.CivilizationId);
+                if (civ != null && civ.HealingBuildingsCount > 0)
+                {
+                    // 10 зданий = +0.05, 50 зданий = +0.25, 100+ зданий = +0.35 (максимум)
+                    float globalHealthcareBuff = Math.Min(0.35f, civ.HealingBuildingsCount * 0.005f);
+                    medicine += globalHealthcareBuff;
+                }
+            }
+
+            // 3. БАФФ ОТ ЗНАНИЙ (Гигиена, методы лечения)
+            medicine += KnowledgeSystem.MethodBuff(agent, "healing") * 0.4f;
+
+            // Кап на уровне 0.8 (80% эффективности медицины)
             return Math.Clamp(medicine, 0f, 0.8f);
         }
 

@@ -22,7 +22,7 @@ namespace GenesisEngine.Systems
         public Dictionary<string, float> MatStock = new();
         public HashSet<string> TriedPairs = new();
         public float InnovationPoints;
-
+        public int HealingBuildingsCount = 0; // Новое поле для подсчета зданий медицины
         public int Population => Members.Count;
 
         public int ControlledTiles => Members
@@ -85,6 +85,19 @@ namespace GenesisEngine.Systems
             EducationLevel = Members.Count > 0 ? (float)scholars / Members.Count : 0;
             AvgToolHardness = itemCount > 0 ? totalHardness / itemCount : 0;
             EmergentStructuresCount = structures;
+            HealingBuildingsCount = 0;
+            var countedTiles = new HashSet<(int, int)>();
+            foreach (var a in Members)
+            {
+                var t = world[a.Position.X, a.Position.Y];
+                var key = (t.X, t.Y);
+                // Считаем только функциональные здания медицины, принадлежащие этой цивилизации, без дубликатов
+                if (!countedTiles.Contains(key) && t.BuildingFunctional && t.DominantAxis == "healing" && t.OwnerCivId == Id)
+                {
+                    HealingBuildingsCount++;
+                    countedTiles.Add(key);
+                }
+            }
         }
 
         public bool HasAnyCentralBuilding() => EmergentStructuresCount > 0;

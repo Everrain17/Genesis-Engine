@@ -40,7 +40,8 @@ namespace GenesisEngine.Systems.Analytics
             ["culture_data"] = "RunId,Tick,Artifacts,SacredArtifacts,Texts,SacredTexts,TextsWithKnowledge,KnownSymbols,AvgSanctity",
 
             ["demography_data"] = "RunId,Tick,Births100,DeathsHunger100,DeathsPredator100,DeathsCombat100,DeathsNatural100,DeathsPlague100,DeathsCold100," +
-                "AvgAge,AvgGeneration,Males,Females,Farmers,Builders,Traders,Soldiers,Scholars,Artisans",
+    "AvgAge,AvgGeneration,Males,Females,Farmers,Builders,Traders,Soldiers,Scholars,Artisans," +
+    "Children,Youth,Adults,MiddleAge,Elderly",
 
             ["signals_data"] = "RunId,Tick,Alarm,Food,Come,Danger,Trade,Help,Bond,Mourn,Celebrate",
             ["technology_data"] = "RunId,Tick,Axis,AvgCap",
@@ -156,16 +157,28 @@ namespace GenesisEngine.Systems.Analytics
                 _prevNatural = sim.TotalDiedNatural;
                 _prevPlague = sim.TotalDiedPlague;
                 _prevCold = sim.TotalDiedCold;
-
                 float avgAge = agents.Count > 0 ? (float)agents.Average(a => a.Age) : 0f;
                 float avgGen = agents.Count > 0 ? (float)agents.Average(a => a.Generation) : 0f;
                 int males = agents.Count(a => a.BiologicalSex == Sex.Male);
                 var roleCounts = RoleObserver.CountRoles(agents);
 
+                // === НОВОЕ: Подсчет возрастных групп ===
+                int children = 0, youth = 0, adults = 0, middleAge = 0, elderly = 0;
+                foreach (var a in agents)
+                {
+                    float normAge = a.Age / a.MaxAge;
+                    if (normAge < 0.15f) children++;
+                    else if (normAge < 0.30f) youth++;
+                    else if (normAge < 0.65f) adults++;
+                    else if (normAge < 0.85f) middleAge++;
+                    else elderly++;
+                }
+
                 Enq("demography_data",
                     $"{_runId},{tick},{births},{dHunger},{dPredator},{dCombat},{dNatural},{dPlague},{dCold}," +
                     $"{avgAge:F0},{avgGen:F2},{males},{agents.Count - males}," +
-                    $"{roleCounts[AgentRole.Farmer]},{roleCounts[AgentRole.Builder]},{roleCounts[AgentRole.Trader]},{roleCounts[AgentRole.Soldier]},{roleCounts[AgentRole.Scholar]},{roleCounts[AgentRole.Artisan]}");
+                    $"{roleCounts[AgentRole.Farmer]},{roleCounts[AgentRole.Builder]},{roleCounts[AgentRole.Trader]},{roleCounts[AgentRole.Soldier]},{roleCounts[AgentRole.Scholar]},{roleCounts[AgentRole.Artisan]}," +
+                    $"{children},{youth},{adults},{middleAge},{elderly}");
 
                 // ---------- signals_data ----------
                 var sig = new Dictionary<SignalType, int>();

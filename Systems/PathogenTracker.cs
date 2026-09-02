@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using GenesisEngine.Core;
 using GenesisEngine.UI;
 
 namespace GenesisEngine.Systems
@@ -10,9 +10,9 @@ namespace GenesisEngine.Systems
     {
         public string Id;
         public string Name;
-        public string ParentStrainId; // Исправлено: было ParentStrain
+        public string ParentStrainId;
         public int BirthTick;
-        public int ExtinctionTick;    // 0, если вирус всё ещё активен
+        public int ExtinctionTick;
         public int TotalInfected;
         public int TotalDied;
         public int PeakActive;
@@ -21,9 +21,11 @@ namespace GenesisEngine.Systems
         public float BaseContagiousness;
         public float CurrentVirulence;
         public float CurrentContagiousness;
-        public int LastActiveTick;    // Добавлено для корректного отслеживания угасания
+        public int LastActiveTick;
 
-        // Свойство только для чтения, вычисляемое на основе ExtinctionTick
+        // === НОВОЕ: Словарь мутаций генов, которые этот штамм вызвал у агентов ===
+        public Dictionary<string, int> MutatedGenes = new();
+
         public bool IsExtinct => ExtinctionTick > 0;
     }
 
@@ -84,11 +86,21 @@ namespace GenesisEngine.Systems
             }
         }
 
+        // === НОВОЕ: Метод для записи мутации гена ===
+        public static void RecordGeneMutation(string pathogenId, string geneName)
+        {
+            if (Records.TryGetValue(pathogenId, out var record))
+            {
+                if (!record.MutatedGenes.ContainsKey(geneName))
+                    record.MutatedGenes[geneName] = 0;
+                record.MutatedGenes[geneName]++;
+            }
+        }
+
         public static void CheckExtinctions(int currentTick)
         {
             foreach (var record in Records.Values)
             {
-                // Исправлено: проверяем LastActiveTick и присваиваем ExtinctionTick, а не IsExtinct
                 if (!record.IsExtinct && record.CurrentActive <= 0 && (currentTick - record.LastActiveTick > 1000))
                 {
                     record.ExtinctionTick = currentTick;
@@ -102,14 +114,12 @@ namespace GenesisEngine.Systems
 
         public static string TryMutate(string currentPathogenId, string baseType, float currentVirulence, float currentContagion, int tick, Random rng)
         {
-            // Шанс мутации: 0.5% при каждом новом заражении
             if (rng.NextDouble() > 0.005f) return currentPathogenId;
 
             _mutationCounter++;
             string newId = $"P_{baseType}_M{_mutationCounter:D3}";
             string newName = $"{baseType}-Strain-{_mutationCounter:D3}";
 
-            // Мутация: случайное изменение свойств (дрейф)
             float virulenceChange = (float)(rng.NextDouble() - 0.5) * 0.15f;
             float contagionChange = (float)(rng.NextDouble() - 0.5) * 0.15f;
 
@@ -125,27 +135,37 @@ namespace GenesisEngine.Systems
 
             return newId;
         }
-        /// <summary>
-        /// Экспортирует финальные данные всех штаммов в CSV после завершения симуляции.
-        /// </summary>
+
         public static void ExportFinalData(string csvPath, string runId)
         {
             try
             {
-                var header = "RunId,PathogenId,PathogenName,ParentStrain,TotalInfected,TotalDied,PeakActive,CurrentActive,Virulence,Contagiousness,IsExtinct,BirthTick,ExtinctionTick";
+                // Добавили колонку TopMutatedGene в конец
+                var header = "RunId,PathogenId,PathogenName,ParentStrain,TotalInfected,TotalDied,PeakActive,CurrentActive,Virulence,Contagiousness,IsExtinct,BirthTick,ExtinctionTick,TopMutatedGene";
 
                 using var writer = new StreamWriter(csvPath, false);
                 writer.WriteLine(header);
 
                 foreach (var rec in Records.Values)
                 {
-                    // Пишем только штаммы, которые хоть кого-то заразили
                     if (rec.TotalInfected <= 0) continue;
+
+                    // Находим ген, который мутировал чаще всего у этого штамма
+                    string topGene = "None";
+                    int maxMutations = 0;
+                    foreach (var kvp in rec.MutatedGenes)
+                    {
+                        if (kvp.Value > maxMutations)
+                        {
+                            maxMutations = kvp.Value;
+                            topGene = kvp.Key;
+                        }
+                    }
 
                     string line = $"{runId},{rec.Id},\"{rec.Name}\",{rec.ParentStrainId ?? "None"}," +
                                  $"{rec.TotalInfected},{rec.TotalDied},{rec.PeakActive},{rec.CurrentActive}," +
                                  $"{rec.CurrentVirulence:F3},{rec.CurrentContagiousness:F3},{rec.IsExtinct}," +
-                                 $"{rec.BirthTick},{rec.ExtinctionTick}";
+                                 $"{rec.BirthTick},{rec.ExtinctionTick},{topGene}";
                     writer.WriteLine(line);
                 }
             }
@@ -154,6 +174,7 @@ namespace GenesisEngine.Systems
                 Console.WriteLine($"[PathogenTracker] Export error: {ex.Message}");
             }
         }
+
         public static PathogenRecord GetRecord(string id) => Records.GetValueOrDefault(id);
         public static List<PathogenRecord> GetAllRecords() => Records.Values.ToList();
     }
