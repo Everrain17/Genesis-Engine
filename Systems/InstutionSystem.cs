@@ -22,6 +22,13 @@ namespace GenesisEngine.Systems
             {
                 if (tile == null)
                     continue;
+                if (tile.Building == BuildingType.None &&
+                    tile.SanctityLevel <= 0f &&
+                    tile.Texts.Count == 0 &&
+                    tile.Artifacts.Count == 0)
+                {
+                    continue;
+                }
 
                 bool hasPotential =
                     tile.BuildingFunctional ||

@@ -29,7 +29,7 @@ namespace GenesisEngine.Systems
                 for (int y = 0; y < world.GetLength(1); y++)
                 {
                     var tile = world[x, y];
-                    var agentsHere = SpatialGrid.GetNearby(new Vector2(x, y), 0);
+                    var agentsHere = SpatialGrid.CellAt(x, y);
 
                     if (agentsHere.Count == 0) continue;
 

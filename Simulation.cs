@@ -174,7 +174,6 @@ namespace GenesisEngine
             }
             // Принудительное обновление сетки после движения агентов
             SpatialGrid.ForceUpdate(Agents);
-            TerritoryCaptureSystem.Update(Agents, World);
 
             Stopwatch creaturesSw = EnableProfiling ? Stopwatch.StartNew() : null;
 
@@ -446,10 +445,14 @@ namespace GenesisEngine
                     });
                 }
 
-                // Экологическая обратная связь
-                float organicAmount = tile.GroundObjects
-                    .Where(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
-                    .Sum(o => o.Quantity);
+                float organicAmount = 0f;
+                foreach (var o in tile.GroundObjects)
+                {
+                    if (MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f)
+                    {
+                        organicAmount += o.Quantity;
+                    }
+                }
 
                 float targetOrganic = tile.Fertility * 40f;
                 if (isFarm) targetOrganic *= (1f + tile.BuildingQuality * 2f);
@@ -749,6 +752,7 @@ namespace GenesisEngine
 
                 Console.WriteLine("Building Excel report...");
                 ExcelExporter.ExportFolder(runDir);
+                CivArchive.ExportAll(runDir, Simulation.Instance?.TotalTicks ?? 0);
                 FileLogger.Flush();
                 FileLogger.Close();
 

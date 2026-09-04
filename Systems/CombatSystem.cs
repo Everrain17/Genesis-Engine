@@ -63,6 +63,7 @@ namespace GenesisEngine.Systems
             if (b.Body.Health <= 0)
             {
                 b.LastAction = "Combat";
+                b.RecordAction("Combat");
             }
         }
 

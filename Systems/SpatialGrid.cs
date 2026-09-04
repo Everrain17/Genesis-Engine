@@ -12,7 +12,7 @@ namespace GenesisEngine.Systems
         private static List<Agent>[,] _cells;
         private static int _cellsW;
         private static int _cellsH;
-
+        private static readonly List<Agent> Empty = new();
         private static int _lastUpdateTick = -1;
 
         public static void Initialize(int worldWidth, int worldHeight)
@@ -133,6 +133,38 @@ namespace GenesisEngine.Systems
             }
 
             return result;
+        }
+        // Счётчик без создания списка
+        public static int CountNearby(Vector2 pos, int radius)
+        {
+            if (radius < 0) return 0;
+            EnsureInitialized();
+            int cx = pos.X / CellSize, cy = pos.Y / CellSize;
+            int cellRadius = radius / CellSize + 1, radiusSq = radius * radius;
+            int minX = Math.Max(0, cx - cellRadius), minY = Math.Max(0, cy - cellRadius);
+            int maxX = Math.Min(_cellsW - 1, cx + cellRadius), maxY = Math.Min(_cellsH - 1, cy + cellRadius);
+            int count = 0;
+            for (int x = minX; x <= maxX; x++)
+                for (int y = minY; y <= maxY; y++)
+                {
+                    var list = _cells[x, y];
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        var a = list[i];
+                        int dx = a.Position.X - pos.X, dy = a.Position.Y - pos.Y;
+                        if (dx * dx + dy * dy <= radiusSq) count++;
+                    }
+                }
+            return count;
+        }
+
+        // Внутренний список ячейки БЕЗ копирования (только чтение в пределах тика!)
+        public static List<Agent> CellAt(int x, int y)
+        {
+            EnsureInitialized();
+            int cx = x / CellSize, cy = y / CellSize;
+            if (cx < 0 || cy < 0 || cx >= _cellsW || cy >= _cellsH) return Empty;
+            return _cells[cx, cy];
         }
     }
 }

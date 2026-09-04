@@ -31,11 +31,21 @@ namespace GenesisEngine.Systems
         private static readonly Dictionary<string, Pathogen> ActivePathogens = new();
         private static int _counter;
 
-        public static float SparkChance = 0.02f;
+        public static float SparkChance = 0.04f;
 
         public static Pathogen GetPathogen(string id) =>
             string.IsNullOrEmpty(id) ? null : ActivePathogens.GetValueOrDefault(id);
+        private static int _sparkAttempts;   // сколько раз бросали кубик шанса
+        private static int _sparkSuccesses;  // сколько раз вирус реально родился
 
+        /// <summary>Логгер читает и обнуляет раз в окно логирования.</summary>
+        public static void ReadSparkStats(out int attempts, out int successes)
+        {
+            attempts = _sparkAttempts;
+            successes = _sparkSuccesses;
+            _sparkAttempts = 0;
+            _sparkSuccesses = 0;
+        }
 
         /// <summary>
         /// Рассчитывает множитель вирулентности в зависимости от температуры.
@@ -141,9 +151,9 @@ namespace GenesisEngine.Systems
                 // Зимой шанс зарождения новой эпидемии дополнительно падает в 5 раз
                 actualSparkChance *= 0.2f;
             }
-
+            _sparkAttempts++;
             if (rng.NextDouble() >= actualSparkChance) return;
-
+            _sparkSuccesses++;
             // 3. Генерируем вирус с учетом текущей температуры
             var p = GeneratePathogen(terrain, rng, currentTemp);
 

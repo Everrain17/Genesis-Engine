@@ -26,12 +26,12 @@ namespace GenesisEngine.Systems.Analytics
                     "AvgInstitutionLevel,LexiconSize,GrammarRules,Phonemes,Graphemes,Invariants," +
                     "TotalBuildings,Farms,Houses,Libraries,Temples,Markets,Barracks,Mines,Bridges,Warehouses,LogicDevices,Hospices," +
                     "AvgAggression,AvgConscientiousness,AvgSelfAwareness,AvgLogic,WarsActive,Infected,HerdImmunity,GiniCoefficient," +
-                    "GlobalTemp,GlobalHumidity,GlobalWind,GlobalPrecipitation",  // НОВОЕ
+                    "GlobalTemp,GlobalHumidity,GlobalWind,GlobalPrecipitation,SparkAttempts100,SparkSuccesses100",  // НОВОЕ
 
 
             ["civ_snapshots"] = "RunId,Tick,CivId,CivName,Population,Era,LexiconSize,GrammarRules,Phonemes,Graphemes," +
-                "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore," +
-                "Infected,HerdImmunity,AvgAggression",
+    "AvgToolHardness,TotalDevelopment,EmergentStructures,TotalScore," +
+    "Infected,HerdImmunity,AvgAggression,Religion,DominantCult,Piety",
 
             ["events"] = "RunId,Tick,EventType,CivId,Data",
             ["cognitive_data"] = "RunId,Tick,Key,Count,Avg",
@@ -51,6 +51,7 @@ namespace GenesisEngine.Systems.Analytics
         public static void Initialize(string runId, string directory)
         {
             _runId = runId;
+            CivArchive.Reset(); // <-- ДОБАВИТЬ 
             if (!Directory.Exists(directory)) Directory.CreateDirectory(directory);
 
             foreach (var kv in Headers)
@@ -108,6 +109,7 @@ namespace GenesisEngine.Systems.Analytics
                 float avgKnowers = KnowledgeSystem.All.Count > 0 ? KnowledgeSystem.All.Average(k => (float)k.Knowers.Count) : 0f;
                 int reads = KnowledgeSystem.ReadsSinceLastCsv();
                 int teachings = KnowledgeSystem.TeachingsSinceLastCsv();
+                EpidemicSystem.ReadSparkStats(out int sparkAtt, out int sparkSucc); // <-- НОВОЕ
                 int lexicon = LanguageSystem.StableWordCount();
                 int grammar = GrammarSystem.RuleCount();
                 int phonemes = 0, graphemes = 0, invariants = 0;
@@ -138,7 +140,8 @@ namespace GenesisEngine.Systems.Analytics
                 $"{scan.Total},{scan.Farms},{scan.Houses},{scan.Libraries},{scan.Temples},{scan.Markets}," +
                 $"{scan.Barracks},{scan.Mines},{scan.Bridges},{scan.Warehouses},{scan.Logic},{scan.Hospices}," +
                 $"{avgAggr:F3},{avgConsc:F3},{avgSelfAw:F3},{avgLogic:F3},{warsActive},{infectedCount},{herdImmunity:F3},{gini:F3}," +
-                $"{globalTemp:F3},{globalHum:F3},{globalWind:F3},{globalPrecip:F3}");  // НОВОЕ
+                $"{globalTemp:F3},{globalHum:F3},{globalWind:F3},{globalPrecip:F3}," +
+                $"{sparkAtt},{sparkSucc}");  // <-- ДОБАВИТЬ;  // НОВОЕ
 
 
 
@@ -248,6 +251,9 @@ namespace GenesisEngine.Systems.Analytics
                 // ---------- civ_snapshots (каждые 1000) ----------
                 if (tick % 1000 == 0 && civs != null)
                 {
+                    // ФАЗА 1: религиозный паспорт (дешево, раз в 1000 тиков)
+                    ReligionSystem.UpdateAll(sim, world, tick);
+                    CivArchive.Snapshot(tick, civs, world);
                     foreach (var c in civs)
                     {
                         string name = (c.Name ?? "").Replace("\"", "'");
@@ -255,12 +261,18 @@ namespace GenesisEngine.Systems.Analytics
                         float civHerd = c.Members.Count > 0 ? (float)c.Members.Count(a => a.Genome.ImmuneStrength > 0.8f) / c.Members.Count : 0f;
                         float civAggr = c.Members.Count > 0 ? c.Members.Average(a => a.Genome.Aggression) : 0f;
 
+                        // === НОВОЕ: религия ===
+                        var rel = ReligionSystem.GetProfile(c.Id);
+                        string relName = string.IsNullOrEmpty(rel.Name) ? "-" : rel.Name.Replace(",", ";");
+                        string relCult = ReligionSystem.CultLabel(rel.Cult).Replace(",", ";");
+
                         Enq("civ_snapshots",
                             $"{_runId},{tick},{c.Id},\"{name}\",{c.Population},{EraLabel(c.AvgToolHardness)}," +
                             $"{LanguageSystem.StableWordCount(c.Id)},{GrammarSystem.RuleCount(c.Id)}," +
                             $"{PhonemeSystem.PhonemeCount(c.Id)},{GraphemeSystem.GraphemeCount(c.Id)}," +
                             $"{c.AvgToolHardness:F3},{c.TotalDevelopment:F2},{c.EmergentStructuresCount},{c.TotalScore:F0}," +
-                            $"{civInfected},{civHerd:F3},{civAggr:F3}");
+                            $"{civInfected},{civHerd:F3},{civAggr:F3}," +
+                            $"\"{relName}\",{relCult},{rel.Piety:F3}");
                     }
                 }
             }

@@ -26,6 +26,10 @@ namespace GenesisEngine.Entities
         public AgentRole Role = AgentRole.None;
         public float Age, MaxAge;
         public float Fear, Curiosity, Loneliness, Despair;
+        // В классе Agent добавляем:
+        public string FamilyId { get; set; }
+        public int WorkingTicks { get; set; } = 0;
+        public int IdleTicks { get; set; } = 0;
         public bool Infected;
         public float InfectionTimer;
         public string InfectedWith;                                // Тип текущего патогена (например, "marsh-fever")
@@ -45,7 +49,7 @@ namespace GenesisEngine.Entities
         public int ActionHistoryTick = 0;  // Когда последний раз очищали историю
         public int EffectiveVision => (int)(Genome.BaseVision * 0.4f);
         public int EffectiveHearing => (int)(Genome.BaseHearing * 0.5f);
-
+        public string LastDamageType = null;  // "cold", "plague", "combat", null
         public Agent(Vector2 pos, Random rng, int birthTick, int gen = 0)
         {
             byte[] guidBytes = new byte[16];
@@ -62,6 +66,7 @@ namespace GenesisEngine.Entities
 
         public void Update(Tile[,] world, List<Agent> agents, List<Creature> creatures)
         {
+            LastDamageType = null;  // сбрасываем в начале тика
             Age++;
             Tile currentTile = world[Position.X, Position.Y];
             if (Age > MaxAge)
@@ -110,7 +115,17 @@ namespace GenesisEngine.Entities
             Body.Metabolize(1f);
 
             if (Body.Hunger >= 100f && Body.Health <= 0f)
-                LastAction = "Hunger";
+            {
+                if (Body.Health <= 0f)
+                {
+                    if (!string.IsNullOrEmpty(LastDamageType))
+                        LastAction = char.ToUpper(LastDamageType[0]) + LastDamageType.Substring(1); // "Cold", "Plague"...
+                    else if (Body.Hunger >= 100f)
+                        LastAction = "Hunger";
+                    else
+                        LastAction = "Age";
+                }
+            }
 
             Loneliness = Math.Min(100f, Loneliness + 0.02f);
             Fear = Math.Max(0f, Fear - 0.05f);
@@ -316,6 +331,7 @@ namespace GenesisEngine.Entities
                         var child = new Agent(Position, rng, Simulation.Instance.TotalTicks, Math.Max(Generation, partner.Generation) + 1)
                         {
                             Genome = AgentGenome.Combine(mother.Genome, father.Genome, rng),
+                            FamilyId = mother.FamilyId ?? Guid.NewGuid().ToString()[..8], // наследует от матери или создаёт новую династию
                             MotherId = mother.Id,
                             FatherId = father.Id,
                             CivilizationId = CivilizationId
@@ -583,7 +599,7 @@ namespace GenesisEngine.Entities
 
             // === НОВОЕ: Проверка плотности перед движением ===
             // Если в текущей позиции слишком много агентов, ищем менее населённое место
-            int currentDensity = SpatialGrid.GetNearby(Position, 2).Count;
+            int currentDensity = SpatialGrid.CountNearby(Position, 2);
             bool shouldRelocate = currentDensity > 40; // Если больше 40 агентов рядом
 
             int dx = rng.Next(-1, 2);
@@ -610,7 +626,7 @@ namespace GenesisEngine.Entities
 
                         if (newX >= 0 && newX < world.GetLength(0) && newY >= 0 && newY < world.GetLength(1))
                         {
-                            int density = SpatialGrid.GetNearby(new Vector2(newX, newY), 2).Count;
+                            int density = SpatialGrid.CountNearby(new Vector2(newX, newY), 2);
                             if (density < minDensity)
                             {
                                 minDensity = density;
@@ -660,6 +676,11 @@ namespace GenesisEngine.Entities
                     Position = new Vector2(nx, ny);
                 }
             }
+            // В цикле обновления агента:
+            if (LastAction == "Idle" || LastAction == "Rest")
+                IdleTicks++;
+            else
+                WorkingTicks++;
         }
         private Vector2 CalculateDirectionAwayFromSick(List<Agent> nearby)
         {
@@ -690,7 +711,7 @@ namespace GenesisEngine.Entities
 
             return new Vector2(newX, newY);
         }
-        private void RecordAction(string action)
+        public void RecordAction(string action)
         {
             if (string.IsNullOrEmpty(action) || action == "Move") return;
 

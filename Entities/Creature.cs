@@ -132,10 +132,9 @@ namespace GenesisEngine.Entities
                     // ИСПРАВЛЕНИЕ 2: Эмерджентный "страх перед толпой". 
                     // Хищник считает агентов в радиусе 2.5 тайлов. Если их больше 2, он считает это слишком опасным.
                     int nearbyAgentsCount = agents.Count(a => a.Body.Health > 0 && a.Position.Distance(Position) <= 2.5f);
-                    bool isTooDangerous = nearbyAgentsCount > 5;
+                    bool isTooDangerous = nearbyAgentsCount > 8;
 
-                    // Нападает на человека ТОЛЬКО если нет травоядных, он умирает от голода (Hunger > 95) и человек ОДИН.
-                    if (preyCreature != null || (preyAgent != null && Hunger > 75f && !isTooDangerous))
+                    if (preyCreature != null || (preyAgent != null && (Hunger > 60f || nearbyAgentsCount <= 2) && !isTooDangerous))
                     {
                         if (preyCreature != null)
                         {

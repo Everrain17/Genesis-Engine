@@ -34,7 +34,7 @@ namespace GenesisEngine.Systems
         /// <summary>
         /// Локальные погодные параметры тайла
         /// </summary>
-        public class WeatherState
+        public struct WeatherState
         {
             public float Temperature;
             public float Humidity;
@@ -165,7 +165,7 @@ namespace GenesisEngine.Systems
         /// </summary>
         private static void ApplyWeatherEffectsToTile(Tile tile, int tick)
         {
-            if (tile.Weather == null) return;
+
 
             // Высокая влажность + низкая температура = конденсация (рост органики)
             if (tile.Weather.Humidity > 0.7f && tile.Weather.Temperature < 0.4f)
@@ -211,25 +211,21 @@ namespace GenesisEngine.Systems
                 if (agent.Body.Health <= 0) continue;
 
                 var tile = world[agent.Position.X, agent.Position.Y];
-                if (tile.Weather == null) continue;
 
                 var weather = tile.Weather;
 
-                // Холод: урон здоровью, если температура действительно низкая (ниже 0.15f)
                 if (weather.Temperature < 0.15f)
                 {
                     float protection = 0f;
                     if (tile.IsHouse || tile.IsTemple) protection += 0.7f;
                     if (agent.Body.Inventory.Any(o => MaterialDB.TryGet(o.MaterialId, out var spec) && spec.Organic > 0.5f))
                         protection += 0.3f;
-
-                    // Урон рассчитывается от порога 0.15f
                     float damage = (0.15f - weather.Temperature) * 2f * (1f - protection);
                     agent.Body.Health -= damage;
                     agent.Body.Energy -= damage * 1.3f;
-
-                    if (damage > 0.5f)
+                    if (damage > 0.3f)  // ← понизил с 0.5 до 0.3 — больше фиксаций
                     {
+                        agent.LastDamageType = "cold";     // ← НОВОЕ
                         agent.LastAction = "Cold";
                         CognitionSystem.Record("weather.cold_damage", damage);
                     }

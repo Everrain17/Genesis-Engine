@@ -81,9 +81,9 @@ namespace GenesisEngine.World
                         if (nx >= 0 && nx < World.GetLength(0) &&
                             ny >= 0 && ny < World.GetLength(1))
                         {
-                            var nearby = SpatialGrid.GetNearby(
+                            var nearby = SpatialGrid.CountNearby(
                                 new Vector2(nx, ny), 0);
-                            count += nearby.Count;
+                            count += nearby;
                         }
                     }
                 }

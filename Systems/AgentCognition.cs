@@ -25,6 +25,7 @@ namespace GenesisEngine.Systems
                     if (KnowledgeSystem.TryReadFromText(a, tile, rng))
                     {
                         a.LastAction = "Read";
+                        a.RecordAction("Read");
                         return true;
                     }
                 }
@@ -50,6 +51,7 @@ namespace GenesisEngine.Systems
                         if (copy != null)
                         {
                             a.LastAction = "CopyText";
+                            a.RecordAction("CopyText");
                             return true;
                         }
                     }
@@ -78,6 +80,7 @@ namespace GenesisEngine.Systems
                         if (text != null)
                         {
                             a.LastAction = "Write";
+                            a.RecordAction("Write");
                             return true;
                         }
                     }
@@ -112,6 +115,7 @@ namespace GenesisEngine.Systems
                 if (SymbolicManipulationSystem.TryManipulateSymbols(a, tile, rng))
                 {
                     a.LastAction = "SymbolicManipulation";
+                    a.RecordAction("SymbolicManipulation");
                     return true;
                 }
             }

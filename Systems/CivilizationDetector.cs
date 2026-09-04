@@ -98,6 +98,7 @@ namespace GenesisEngine.Systems
                     countedTiles.Add(key);
                 }
             }
+
         }
 
         public bool HasAnyCentralBuilding() => EmergentStructuresCount > 0;

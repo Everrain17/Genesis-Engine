@@ -36,6 +36,7 @@ namespace GenesisEngine.Systems
                 if (KnowledgeSystem.TryTeachFromTeacher(teacher, student, tile, rng))
                 {
                     student.LastAction = "Learn";
+                    student.RecordAction("Learn"); 
                     taughtAnything = true;
                 }
             }

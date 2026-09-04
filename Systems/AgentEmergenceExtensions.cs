@@ -146,6 +146,7 @@ namespace GenesisEngine.Systems
                     if (artifact != null)
                     {
                         a.LastAction = "CreateArtifact";
+                        a.RecordAction("CreateArtifact");
 
                         EventBus.Publish(new SimEvent
                         {
@@ -182,6 +183,7 @@ namespace GenesisEngine.Systems
             {
                 a.Fear = Math.Clamp(a.Fear + 8f, 0f, 100f);
                 a.LastAction = "HuntFail";
+                a.RecordAction("HuntFail");
                 return false;
             }
 
@@ -207,6 +209,7 @@ namespace GenesisEngine.Systems
             });
 
             a.LastAction = "Hunt";
+            a.RecordAction("Hunt");
             return true;
         }
 
@@ -263,6 +266,7 @@ namespace GenesisEngine.Systems
                 if (rng.NextDouble() < attackChance)
                 {
                     other.LastAction = "Combat";
+                    other.RecordAction("Combat");
 
                     CombatSystem.Fight(a, other, Simulation.Instance.World);
                     // НОВОЕ: регистрируем потери
@@ -278,6 +282,7 @@ namespace GenesisEngine.Systems
                     });
 
                     a.LastAction = "Attack";
+                    a.RecordAction("Attack");
 
                     return true;
                 }
@@ -334,6 +339,7 @@ namespace GenesisEngine.Systems
                 if (MoveToward(a, target.Value))
                 {
                     a.LastAction = "Raid";
+                    a.RecordAction("Raid");
                     if (rng.NextDouble() < 0.05f)   // прореживание, иначе спам на тысячи строк
                         EventBus.Publish(new SimEvent
                         {

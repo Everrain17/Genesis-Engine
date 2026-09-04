@@ -38,20 +38,24 @@ namespace GenesisEngine.Systems
         public static bool TryManipulateSymbols(Agent agent, Tile tile, Random rng)
         {
             if (agent == null || tile == null || rng == null) return false;
-            if (tile.InstitutionAxis != "knowledge" || tile.InstitutionLevel < 1.2f) return false;   // v3: было 2f
-            if (agent.Logic < 0.45f || agent.Genome.SelfAwareness < 0.4f) return false;             // v3: было 0.55/0.5
+            if (tile.InstitutionAxis != "knowledge" || tile.InstitutionLevel < 0.8f) return false;   // v3: было 2f
+            if (agent.Logic < 0.45f || agent.Genome.SelfAwareness < 0.3f) return false;             // v3: было 0.55/0.5
 
             string civId = agent.CivilizationId ?? "wild";
             var graphemes = GraphemeSystem.GetGraphemes(civId);
             if (graphemes.Count < 2) return false;   // v3: было 3
 
-            float chance = 0.02f + agent.Logic * 0.04f + tile.InstitutionLevel * 0.01f;  // v3: шанс выше
+            float chance = 0.05f + agent.Logic * 0.08f + tile.InstitutionLevel * 0.02f;  // v3: шанс выше
             if (rng.NextDouble() > chance) return false;
 
-            string[] contexts = { "quantity.food", "quantity.stone", "quantity.agents" };
+            string[] contexts = {
+        "quantity.food", "quantity.stone", "quantity.agents",
+        "quality.hard", "quality.organic", "quality.logic",
+        "relation.bond", "relation.trade", "relation.kin"
+    };
             string context = contexts[rng.Next(contexts.Length)];
-            int val1 = rng.Next(1, 4);
-            int val2 = rng.Next(1, 3);
+            int val1 = rng.Next(1, 5);
+            int val2 = rng.Next(1, 5);
             int result = val1 + val2;
 
             string sym1 = GetOrCreateConceptSymbol(civId, $"concept_{context}_{val1}", graphemes, rng);
@@ -97,9 +101,12 @@ namespace GenesisEngine.Systems
 
         private static string GetOrCreateConceptSymbol(string civId, string concept, List<GraphemeSystem.Grapheme> graphemes, Random rng)
         {
-            return $"SYM_{concept.GetHashCode():X4}";
+            // Детерминированный хеш — одинаковый концепт = одинаковый символ
+            int hash = 0;
+            foreach (char c in concept)
+                hash = hash * 31 + c;
+            return $"SYM_{Math.Abs(hash):X4}";
         }
-
         public static void DetectInvariants(List<CivilizationSnapshot> civs)
         {
             if (civs == null) return;
@@ -125,10 +132,10 @@ namespace GenesisEngine.Systems
                     int totalOccurrences = group.Sum(c => c.Occurrences);
                     int distinctContexts = group.Select(c => c.Context).Distinct().Count();
 
-                    bool isAbstract = distinctContexts >= 2 && totalOccurrences >= 10;
-                    float confidence = Math.Min(1f, totalOccurrences / 20f);
+                    bool isAbstract = distinctContexts >= 2 && totalOccurrences >= 5;
+                    float confidence = Math.Min(1f, totalOccurrences / 10f);
 
-                    if (confidence < 0.7f) continue;
+                    if (confidence < 0.5f) continue;
 
                     string invId = $"INV_{group.Key.Inputs}_TO_{group.Key.Output}";
                     var existing = invariants.FirstOrDefault(i => i.Id == invId);

@@ -328,9 +328,7 @@ namespace GenesisEngine.Systems
                 RecordEvent($"quantity.inventory.food.{perception.ExactSmall}");
             }
 
-            // 2. Субитизация: количество агентов рядом
-            var nearby = SpatialGrid.GetNearby(agent.Position, 2);
-            int nearbyCount = nearby.Count;
+            int nearbyCount = SpatialGrid.CountNearby(agent.Position, 2);
 
             if (nearbyCount > 0)
             {

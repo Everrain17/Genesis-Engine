@@ -59,6 +59,9 @@ namespace GenesisEngine.Systems
                 MaterialId = materialId,
                 Craftsmanship = craftsmanship,
                 CulturalValue = craftsmanship * 10f * (1f + spec.Rarity),
+                // Артефакт становится священным, если создан в святом месте
+                // или очень духовным автором
+                IsSacred = tile.SanctityLevel >= 5f || creator.Genome.Spirituality >= 0.85f,
                 Name = $"Artifact_{AllArtifacts.Count}"
             };
 
@@ -192,7 +195,6 @@ namespace GenesisEngine.Systems
 
             tile.SanctityLevel += agentsHere.Count(a => a.LastAction == "Mourn") * 0.1f;
             tile.SanctityLevel += agentsHere.Count(a => a.LastAction == "Celebrate") * 0.05f; // v3: праздники освящают место
-
             foreach (var artifact in tile.Artifacts)
             {
                 if (Simulation.Instance.TotalTicks - artifact.CreationTick > 10000)
